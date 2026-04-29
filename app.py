@@ -1,30 +1,30 @@
 from flask import Flask, jsonify
-import requests, os
+from fotmob_api import FotMob
 from datetime import datetime
-import pytz
 
 app = Flask(__name__)
-KEY = os.getenv("API_KEY") or os.getenv("KEY", "")
-HEADERS = {'x-apisports-key': KEY}
-
-@app.route("/debug")
-def debug():
-    today = datetime.now(pytz.timezone('Asia/Tokyo')).strftime("%Y-%m-%d")
-    url = f"https://v3.football.api-sports.io/fixtures?date={today}"
-    r = requests.get(url, headers=HEADERS, timeout=15)
-    return jsonify({
-        "key_terbaca": KEY[:8] + "..." if KEY else "KOSONG",
-        "status_code": r.status_code,
-        "api_response": r.json()
-    })
+fm = FotMob()
 
 @app.route("/")
 def home():
-    return "buka /debug"            "home": m["teams"]["home"]["name"],
-            "away": m["teams"]["away"]["name"],
-            "kickoff": m["fixture"]["date"],
-            "league": m["league"]["name"],
-            "status": m["fixture"]["status"]["short"],
-            "score": f"{m['goals']['home']}-{m['goals']['away']}"
+    return "OK - buka /json"
+
+@app.route("/json")
+def json_data():
+    today = datetime.now().strftime("%Y%m%d")
+    matches = fm.get_matches_by_date(today)
+    # ambil 30 pertandingan pertama biar ringan
+    out = []
+    for m in matches[:30]:
+        out.append({
+            "home": m.get("home",{}).get("name"),
+            "away": m.get("away",{}).get("name"),
+            "score": f"{m.get('home',{}).get('score',0)}-{m.get('away',{}).get('score',0)}",
+            "status": m.get("status",{}).get("reason",{}).get("short"),
+            "league": m.get("leagueName")
         })
     return jsonify(out)
+
+@app.route("/today")
+def today():
+    return json_data()
