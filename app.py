@@ -1,27 +1,44 @@
-from flask import Flask
-import requests, os
+from flask import Flask, jsonify
+import requests, os, time
 from datetime import datetime
 import pytz
-app=Flask(__name__)
-KEY=os.getenv("KEY") or os.getenv("API_KEY","")
-H={'x-apisports-key':KEY}
-JST=pytz.timezone('Asia/Tokyo')
-def ai(h,a):
- total=h+a+0.1; hp=(h/total)*100; ap=(a/total)*100
- if abs(hp-ap)<10: return f"AI: Draw {50+abs(hp-ap)/2:.0f}%"
- return f"AI: Home {hp:.0f}%" if hp>ap else f"AI: Away {ap:.0f}%"
+
+app = Flask(__name__)
+KEY = os.getenv("API_KEY") or os.getenv("KEY", "")
+HEADERS = {'x-apisports-key': KEY}
+JST = pytz.timezone('Asia/Tokyo')
+
+cache = {"time":0, "data":[]}
+
+def fetch_today():
+    if time.time() - cache["time"] < 60:
+        return cache["data"]
+    today = datetime.now(JST).strftime("%Y-%m-%d")
+    url = f"https://v3.football.api-sports.io/fixtures?date={today}"
+    r = requests.get(url, headers=HEADERS, timeout=15).json()
+    cache["data"] = r.get("response", [])
+    cache["time"] = time.time()
+    return cache["data"]
+
 @app.route("/")
 def home():
- try:
-  r=requests.get("https://v3.football.api-sports.io/fixtures?live=all",headers=H,timeout=10).json()
-  games=[m for m in r.get("response",[]) if m["league"]["country"] in ["Japan","South Korea","China","Australia"]]
-  now=datetime.now(JST).strftime("%H:%M JST")
- except: games=[]; now=""
- html=f"<html><head><meta name=viewport content='width=device-width'><style>body{{font-family:Arial;background:#fff;color:#000;padding:15px}} .m{{border-bottom:1px solid #ddd;padding:12px 0}} .t{{font-weight:bold}} .s{{color:#d00;font-weight:bold}} .a{{color:#080;font-size:13px}}</style></head><body><h2>⚽ BET PRO LIVE ({now})</h2>"
- if not games: html+="<p>Tidak ada laga Asia live saat ini.</p>"
- for m in games:
-  h=m["teams"]["home"]["name"]; a=m["teams"]["away"]["name"]
-  hs=m["goals"]["home"]; aw=m["goals"]["away"]; el=m["fixture"]["status"]["elapsed"]
-  html+=f"<div class=m><div class=t>{h} vs {a}</div><div class=s>{hs}-{aw} ({el}')</div><div class=a>{ai(hs,aw)}</div></div>"
- html+="</body></html>"; return html
-if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
+    return "OK - buka /json atau /today"
+
+@app.route("/json")
+def json_full():
+    return jsonify(fetch_today())
+
+@app.route("/today")
+def today_simple():
+    data = fetch_today()
+    out = []
+    for m in data[:30]:  # ambil 30 pertama biar ringan
+        out.append({
+            "home": m["teams"]["home"]["name"],
+            "away": m["teams"]["away"]["name"],
+            "kickoff": m["fixture"]["date"],
+            "league": m["league"]["name"],
+            "status": m["fixture"]["status"]["short"],
+            "score": f"{m['goals']['home']}-{m['goals']['away']}"
+        })
+    return jsonify(out)
