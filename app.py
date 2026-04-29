@@ -24,38 +24,4 @@ def home():
   hs=m["goals"]["home"]; aw=m["goals"]["away"]; el=m["fixture"]["status"]["elapsed"]
   html+=f"<div class=m><div class=t>{h} vs {a}</div><div class=s>{hs}-{aw} ({el}')</div><div class=a>{ai(hs,aw)}</div></div>"
  html+="</body></html>"; return html
-if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))</body></html>"""
-
-def fetch():
-    if not KEY: return []
-    r = requests.get("https://v3.football.api-sports.io/fixtures",
-                     headers=H, params={"live":"all"}, timeout=20).json()
-    out=[]
-    for f in r.get("response",[]):
-        if f["league"]["country"]!="Japan": continue
-        fid=f["fixture"]["id"]
-        pr = requests.get("https://v3.football.api-sports.io/predictions",
-                          headers=H, params={"fixture":fid}, timeout=15).json()
-        p = pr.get("response",[{}])[0].get("predictions",{}).get("percent",{})
-        ph = int(p.get("home","0%").replace("%","") or 0)
-        px = int(p.get("draw","0%").replace("%","") or 0)
-        pa = int(p.get("away","0%").replace("%","") or 0)
-        rec = "HOME" if ph>pa and ph>px else "AWAY" if pa>ph and pa>px else "DRAW"
-        st=f["fixture"]["status"]
-        status="HT" if st["short"]=="HT" else f"{st['elapsed']}'"
-        out.append({
-            "league":f"JPN {'D1' if 'J1' in f['league']['name'] else 'D2'}",
-            "time":datetime.fromisoformat(f["fixture"]["date"]).astimezone(WIB).strftime("%H:%M"),
-            "status":status,"home":f["teams"]["home"]["name"],"away":f["teams"]["away"]["name"],
-            "gh":f["goals"]["home"] or 0,"ga":f["goals"]["away"] or 0,
-            "ph":ph,"px":px,"pa":pa,"rec":rec
-        })
-    return out
-
-@app.route("/")
-def index():
-    return render_template_string(HTML, matches=fetch(),
-        now=datetime.now(WIB).strftime("%d %b %H:%M WIB"))
-
-if __name__=="__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",8080)))
+if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))
