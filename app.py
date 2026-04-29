@@ -1,40 +1,30 @@
-import os, requests
-from flask import Flask, render_template_string
+from flask import Flask
+import requests, os
 from datetime import datetime
 import pytz
-
-app = Flask(__name__)
-KEY = os.getenv("API_KEY","")
-H = {"x-apisports-key": KEY}
-WIB = pytz.timezone("Asia/Jakarta")
-
-HTML = """<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30">
-<title>BET PRO LIVE</title>
-<style>
-body{font-family:system-ui;background:#fff;color:#111;margin:0}
-.header{background:#ff6a00;color:#fff;padding:12px;font-weight:bold;text-align:center}
-.match{border-bottom:1px solid #eee;padding:10px 12px}
-.top{display:flex;justify-content:space-between;font-size:13px;color:#8a5a00}
-.teams{font-size:16px;margin:4px 0}
-.score{float:right;font-size:20px;font-weight:bold}
-.live{color:#e60000}.ht{color:#007bff}
-.ai{margin-top:6px;font-size:12px;color:#006400;background:#f0fff0;padding:4px;border-radius:4px}
-</style></head><body>
-<div class=header>BET PRO ⚽ LIVE — {{now}}</div>
-{% for m in matches %}
-<div class=match>
-  <div class=top>
-    <span>{{m.league}}</span>
-    <span>{{m.time}}</span>
-    <span class="{{'ht' if m.status=='HT' else 'live'}}">{{m.status}}</span>
-  </div>
-  <div class=teams>{{m.home}}<span class=score>{{m.gh}}</span></div>
-  <div class=teams>{{m.away}}<span class=score>{{m.ga}}</span></div>
-  <div class=ai>AI: Home {{m.ph}}% | Draw {{m.px}}% | Away {{m.pa}}% → <b>{{m.rec}}</b></div>
-</div>
-{% else %}<p style="padding:20px">Tidak ada live Jepang saat ini. Coba lagi nanti.</p>{% endfor %}
-</body></html>"""
+app=Flask(__name__)
+KEY=os.getenv("KEY") or os.getenv("API_KEY","")
+H={'x-apisports-key':KEY}
+JST=pytz.timezone('Asia/Tokyo')
+def ai(h,a):
+ total=h+a+0.1; hp=(h/total)*100; ap=(a/total)*100
+ if abs(hp-ap)<10: return f"AI: Draw {50+abs(hp-ap)/2:.0f}%"
+ return f"AI: Home {hp:.0f}%" if hp>ap else f"AI: Away {ap:.0f}%"
+@app.route("/")
+def home():
+ try:
+  r=requests.get("https://v3.football.api-sports.io/fixtures?live=all",headers=H,timeout=10).json()
+  games=[m for m in r.get("response",[]) if m["league"]["country"] in ["Japan","South Korea","China","Australia"]]
+  now=datetime.now(JST).strftime("%H:%M JST")
+ except: games=[]; now=""
+ html=f"<html><head><meta name=viewport content='width=device-width'><style>body{{font-family:Arial;background:#fff;color:#000;padding:15px}} .m{{border-bottom:1px solid #ddd;padding:12px 0}} .t{{font-weight:bold}} .s{{color:#d00;font-weight:bold}} .a{{color:#080;font-size:13px}}</style></head><body><h2>⚽ BET PRO LIVE ({now})</h2>"
+ if not games: html+="<p>Tidak ada laga Asia live saat ini.</p>"
+ for m in games:
+  h=m["teams"]["home"]["name"]; a=m["teams"]["away"]["name"]
+  hs=m["goals"]["home"]; aw=m["goals"]["away"]; el=m["fixture"]["status"]["elapsed"]
+  html+=f"<div class=m><div class=t>{h} vs {a}</div><div class=s>{hs}-{aw} ({el}')</div><div class=a>{ai(hs,aw)}</div></div>"
+ html+="</body></html>"; return html
+if __name__=="__main__": app.run(host="0.0.0.0",port=int(os.environ.get("PORT",8080)))</body></html>"""
 
 def fetch():
     if not KEY: return []
