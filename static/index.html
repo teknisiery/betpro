@@ -58,6 +58,92 @@
     </div>
 
     <script>
+        let lastFeatures = null;
+
+        async function getRecommendation() {
+            const files = document.getElementById('fileInput').files;
+            if (files.length !== 9) {
+                alert("Harap upload tepat 9 file CSV.");
+                return;
+            }
+            const formData = new FormData();
+            for (let f of files) {
+                formData.append('files', f);
+            }
+
+            document.getElementById('status').innerText = "Memproses...";
+            const resp = await fetch('/predict', { method: 'POST', body: formData });
+            const data = await resp.json();
+
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('ahValue').innerText = data.ah;
+            document.getElementById('ouValue').innerText = data.ou;
+
+            ['homeBox','awayBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+            ['overBox','underBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+            ['bttsBox','overHtBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+
+            if (data.ah_choice === 'home') {
+                document.getElementById('homeBox').classList.add('green');
+            } else {
+                document.getElementById('awayBox').classList.add('green');
+            }
+
+            if (data.ou_choice === 'over') {
+                document.getElementById('overBox').classList.add('green');
+            } else {
+                document.getElementById('underBox').classList.add('green');
+            }
+
+            if (data.btts) document.getElementById('bttsBox').classList.add('green');
+            if (data.over_ht) document.getElementById('overHtBox').classList.add('green');
+
+            lastFeatures = data.features;
+            document.getElementById('status').innerText = "";
+        }
+
+        async function sendFeedback() {
+            if (!lastFeatures) {
+                alert("Dapatkan rekomendasi dulu.");
+                return;
+            }
+            const formData = new FormData();
+            formData.append('ah_winner', document.getElementById('actualAH').value);
+            formData.append('ou_result', document.getElementById('actualOU').value);
+            formData.append('btts', document.getElementById('actualBTTS').checked ? 1 : 0);
+            formData.append('over_ht', document.getElementById('actualOverHT').checked ? 1 : 0);
+            formData.append('features_json', JSON.stringify(lastFeatures));
+
+            const resp = await fetch('/feedback', { method: 'POST', body: formData });
+            const data = await resp.json();
+            document.getElementById('feedbackStatus').innerText = data.message + (data.accuracy ? ' Akurasi: '+data.accuracy : '');
+        }
+    </script>
+</body>
+</html>        </div>
+        <div class="row">
+            <div class="box" id="bttsBox">BTTS</div>
+            <div class="box" id="overHtBox">OVER HT</div>
+        </div>
+
+        <div class="upload-section">
+            <h3>Masukkan Hasil Aktual (setelah pertandingan)</h3>
+            <select id="actualAH">
+                <option value="home">Home Menang Handicap</option>
+                <option value="away">Away Menang Handicap</option>
+            </select>
+            <select id="actualOU">
+                <option value="over">Over</option>
+                <option value="under">Under</option>
+            </select>
+            <label>BTTS: <input type="checkbox" id="actualBTTS"></label>
+            <label>Over HT: <input type="checkbox" id="actualOverHT"></label><br>
+            <button onclick="sendFeedback()">📤 Simpan & Latih Ulang</button>
+            <p id="feedbackStatus"></p>
+        </div>
+    </div>
+
+    <script>
         let lastFeatures = null; // Untuk menyimpan fitur yang diekstrak
 
         async function getRecommendation() {
