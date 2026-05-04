@@ -68,4 +68,38 @@
         }
     </script>
 </body>
+</html>        async function trainModel() {
+            const fileInput = document.getElementById('csvFile');
+            const target = document.getElementById('targetCol').value;
+            if (!fileInput.files[0] || !target) {
+                alert("Pilih file CSV dan isi kolom target");
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('target', target);
+
+            const resp = await fetch('/train', { method: 'POST', body: formData });
+            const data = await resp.json();
+            document.getElementById('trainStatus').innerText =
+                `Model terlatih! Akurasi: ${data.accuracy}`;
+        }
+
+        async function predict() {
+            const formData = new FormData();
+            formData.append('team_a', document.getElementById('teamA').value);
+            formData.append('team_b', document.getElementById('teamB').value);
+            formData.append('possession_a', document.getElementById('possessionA').value);
+            formData.append('shots_a', document.getElementById('shotsA').value);
+            formData.append('shots_b', document.getElementById('shotsB').value);
+            formData.append('xg_a', document.getElementById('xgA').value || 0);
+            formData.append('xg_b', document.getElementById('xgB').value || 0);
+
+            const resp = await fetch('/predict', { method: 'POST', body: formData });
+            const data = await resp.json();
+            document.getElementById('predictionResult').innerText =
+                `Hasil prediksi: ${data.prediction}`;
+        }
+    </script>
+</body>
   </html>
