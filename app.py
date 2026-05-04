@@ -1,71 +1,64 @@
-from flask import Flask
-app = Flask(__name__)
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+import pandas as pd
+from pycaret.classification import *
+import uvicorn
+import shutil
+import os
 
-@app.route("/")
-def home():
-    return '''<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BET PRO</title>
-<style>body{background:#0a0f1a;color:#fff;font-family:system-ui;padding:14px}
-h1{color:#4ade80;font-size:20px}table{width:100%;border-collapse:collapse;margin-top:10px;font-size:14px}
-th,td{padding:8px;border-bottom:1px solid #333}th{background:#1e293b}
-button{background:#4ade80;color:#000;border:0;padding:5px 8px;border-radius:5px}</style>
-</head><body>
-<h1>⚽ Pertandingan Hari Ini</h1>
-<div id="info">Loading...</div>
-<table><thead><tr><th>Liga</th><th>Home</th><th>Away</th><th>Skor</th><th>Status</th><th>JSON</th></tr></thead>
-<tbody id="tb"></tbody></table>
-<script>
-let DATA=[];
-async function load(){
- const days=['20260428','20260429','20260430'];
- for(const d of days){
-   try{
-     const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/scoreboard?dates='+d);
-     const j=await r.json();
-     (j.events||[]).forEach(ev=>{
-       const c=ev.competitions[0]; const t=c.competitors;
-       const h=t.find(x=>x.homeAway==='home'); const a=t.find(x=>x.homeAway==='away');
-       DATA.push({id:ev.id,league:ev.league.name,home:h.team.displayName,away:a.team.displayName,
-         score:(h.score||0)+'-'+(a.score||0),status:c.status.type.shortDetail,kickoff:ev.date});
-     });
-   }catch(e){}
- }
- document.getElementById('info').innerText='Total: '+DATA.length+' laga';
- const tb=document.getElementById('tb'); tb.innerHTML='';
- DATA.forEach((o,i)=>{
-   const tr=document.createElement('tr');
-   tr.innerHTML='<td>'+o.league+'</td><td>'+o.home+'</td><td>'+o.away+'</td><td>'+o.score+'</td><td>'+o.status+'</td><td><button onclick="dl('+i+')">DL</button></td>';
-   tb.appendChild(tr);
- });
-}
-function dl(i){const o=DATA[i]; const b=new Blob([JSON.stringify(o,null,2)],{type:'application/json'});
- const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=o.home+'_vs_'+o.away+'.json'; a.click();}
-load();
-</script></body></html>'''          home:h.team.displayName, away:a.team.displayName,
-          score:`${h.score||0}-${a.score||0}`, status:c.status.type.shortDetail,
-          prediction_input:{home_team:h.team.displayName,away_team:a.team.displayName,league:ev.league?.name}
-        });
-      });
-    }catch(e){}
-  }
-  return all;
-}
-async function load(){
-  const data=await getData();
-  document.getElementById('info').innerText=`Ditemukan ${data.length} pertandingan • ${new Date().toLocaleString('id-ID')}`;
-  const tb=document.getElementById('tb'); tb.innerHTML='';
-  data.slice(0,100).forEach(o=>{
-    const tr=document.createElement('tr');
-    tr.innerHTML=`<td>${o.league}</td><td>${o.home}</td><td>${o.away}</td><td>${o.score}</td><td>${o.status}</td>
-    <td><button onclick='dl(${JSON.stringify(o).replace(/'/g,"")})'>DL</button></td>`;
-    tb.appendChild(tr);
-  });
-}
-function dl(o){const b=new Blob([JSON.stringify(o,null,2)],{type:'application/json'});
- const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`${o.home}_vs_${o.away}.json`;a.click();}
-load();
-</script></body></html>""" const a=document.createElement('a');a.href=URL.createObjectURL(b);
- a.download=`${o.home}_vs_${o.away}.json`;a.click();}
-load();
-</script></body></html>"""
+app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+model = None
+target_col = ""
+
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    with open("static/index.html", "r") as f:
+        return f.read()
+
+@app.post("/train")
+async def train(file: UploadFile = File(...), target: str = Form(...)):
+    global model, target_col
+    target_col = target
+    os.makedirs("data", exist_ok=True)
+    file_path = f"data/{file.filename}"
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    df = pd.read_csv(file_path)
+    exp = setup(df, target=target, verbose=False, session_id=42)
+    best = compare_models(n_select=1, verbose=False)
+    model = best
+    save_model(model, "best_model")
+    metrics = pull().iloc[0]['Accuracy']
+    return JSONResponse({"accuracy": round(metrics, 4), "message": "Model siap!"})
+
+@app.post("/predict")
+async def predict(
+    team_a: str = Form(...),
+    team_b: str = Form(...),
+    possession_a: float = Form(...),
+    shots_a: int = Form(...),
+    shots_b: int = Form(...),
+    xg_a: float = Form(0.0),
+    xg_b: float = Form(0.0)
+):
+    global model, target_col
+    if model is None:
+        return JSONResponse({"error": "Model belum dilatih"}, status_code=400)
+    input_data = pd.DataFrame([{
+        "team_a": team_a,
+        "team_b": team_b,
+        "possession_a": possession_a,
+        "shots_a": shots_a,
+        "shots_b": shots_b,
+        "xg_a": xg_a,
+        "xg_b": xg_b
+    }])
+    prediction = predict_model(model, data=input_data)
+    result = prediction["Label"].iloc[0]
+    return JSONResponse({"prediction": str(result)})
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
