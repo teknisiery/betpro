@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Analisis Sepak Bola</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 600px; margin: auto; }
+        input, select, button { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; }
+        .section { margin-bottom: 30px; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+    <h1>⚽ AI Analisis Pertandingan</h1>
+
+    <div class="section">
+        <h2>1. Upload Data & Latih Model</h2>
+        <input type="file" id="csvFile" accept=".csv"><br>
+        <input type="text" id="targetCol" placeholder="Nama kolom target (contoh: result)"><br>
+        <button onclick="trainModel()">🚀 Latih Model</button>
+        <p id="trainStatus"></p>
+    </div>
+
+    <div class="section">
+        <h2>2. Prediksi Pertandingan</h2>
+        <input type="text" id="teamA" placeholder="Tim A"><br>
+        <input type="text" id="teamB" placeholder="Tim B"><br>
+        <input type="number" id="possessionA" placeholder="Penguasaan Bola Tim A (%)" step="0.1"><br>
+        <input type="number" id="shotsA" placeholder="Tembakan Tim A"><br>
+        <input type="number" id="shotsB" placeholder="Tembakan Tim B"><br>
+        <input type="number" id="xgA" placeholder="xG Tim A (opsional)" step="0.001"><br>
+        <input type="number" id="xgB" placeholder="xG Tim B (opsional)" step="0.001"><br>
+        <button onclick="predict()">🔮 Prediksi</button>
+        <h3 id="predictionResult"></h3>
+    </div>
+
+    <script>
+        async function trainModel() {
+            const fileInput = document.getElementById('csvFile');
+            const target = document.getElementById('targetCol').value;
+            if (!fileInput.files[0] || !target) {
+                alert("Pilih file CSV dan isi kolom target");
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('target', target);
+
+            const resp = await fetch('/train', { method: 'POST', body: formData });
+            const data = await resp.json();
+            document.getElementById('trainStatus').innerText =
+                `Model terlatih! Akurasi: ${data.accuracy}`;
+        }
+
+        async function predict() {
+            const formData = new FormData();
+            formData.append('team_a', document.getElementById('teamA').value);
+            formData.append('team_b', document.getElementById('teamB').value);
+            formData.append('possession_a', document.getElementById('possessionA').value);
+            formData.append('shots_a', document.getElementById('shotsA').value);
+            formData.append('shots_b', document.getElementById('shotsB').value);
+            formData.append('xg_a', document.getElementById('xgA').value || 0);
+            formData.append('xg_b', document.getElementById('xgB').value || 0);
+
+            const resp = await fetch('/predict', { method: 'POST', body: formData });
+            const data = await resp.json();
+            document.getElementById('predictionResult').innerText =
+                `Hasil prediksi: ${data.prediction}`;
+        }
+    </script>
+</body>
+  </html>
