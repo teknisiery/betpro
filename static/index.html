@@ -2,39 +2,132 @@
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AI Analisis Sepak Bola</title>
+    <title>AI Taruhan Sepak Bola</title>
     <style>
-        body { font-family: Arial; padding: 20px; max-width: 600px; margin: auto; }
-        input, select, button { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; }
-        .section { margin-bottom: 30px; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: auto; }
+        .upload-section { margin-bottom: 20px; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
+        .row { display: flex; justify-content: center; align-items: center; margin-bottom: 20px; }
+        .box { width: 40%; padding: 20px; text-align: center; border: 2px solid #aaa; border-radius: 10px; margin: 0 10px; font-weight: bold; }
+        .middle { width: 20%; text-align: center; font-size: 24px; }
+        .green { background-color: #4CAF50; color: white; }
+        button { padding: 10px 20px; margin: 5px; }
+        input[type="file"] { margin: 10px 0; }
     </style>
 </head>
 <body>
-    <h1>⚽ AI Analisis Pertandingan</h1>
+    <h1>⚽ Rekomendasi Taruhan</h1>
 
-    <div class="section">
-        <h2>1. Upload Data & Latih Model</h2>
-        <input type="file" id="csvFile" accept=".csv"><br>
-        <input type="text" id="targetCol" placeholder="Nama kolom target (contoh: result)"><br>
-        <button onclick="trainModel()">🚀 Latih Model</button>
-        <p id="trainStatus"></p>
+    <div class="upload-section">
+        <h3>Upload 9 File CSV</h3>
+        <input type="file" id="fileInput" multiple accept=".csv"><br>
+        <button onclick="getRecommendation()">🔍 Dapatkan Rekomendasi</button>
+        <p id="status"></p>
     </div>
 
-    <div class="section">
-        <h2>2. Prediksi Pertandingan</h2>
-        <input type="text" id="teamA" placeholder="Tim A"><br>
-        <input type="text" id="teamB" placeholder="Tim B"><br>
-        <input type="number" id="possessionA" placeholder="Penguasaan Bola Tim A (%)" step="0.1"><br>
-        <input type="number" id="shotsA" placeholder="Tembakan Tim A"><br>
-        <input type="number" id="shotsB" placeholder="Tembakan Tim B"><br>
-        <input type="number" id="xgA" placeholder="xG Tim A (opsional)" step="0.001"><br>
-        <input type="number" id="xgB" placeholder="xG Tim B (opsional)" step="0.001"><br>
-        <button onclick="predict()">🔮 Prediksi</button>
-        <h3 id="predictionResult"></h3>
+    <div id="dashboard" style="display:none;">
+        <div class="row">
+            <div class="box" id="homeBox">HOME</div>
+            <div class="middle"><span id="ahValue"></span></div>
+            <div class="box" id="awayBox">AWAY</div>
+        </div>
+        <div class="row">
+            <div class="box" id="overBox">OVER</div>
+            <div class="middle"><span id="ouValue"></span></div>
+            <div class="box" id="underBox">UNDER</div>
+        </div>
+        <div class="row">
+            <div class="box" id="bttsBox">BTTS</div>
+            <div class="box" id="overHtBox">OVER HT</div>
+        </div>
+
+        <div class="upload-section">
+            <h3>Masukkan Hasil Aktual (setelah pertandingan)</h3>
+            <select id="actualAH">
+                <option value="home">Home Menang Handicap</option>
+                <option value="away">Away Menang Handicap</option>
+            </select>
+            <select id="actualOU">
+                <option value="over">Over</option>
+                <option value="under">Under</option>
+            </select>
+            <label>BTTS: <input type="checkbox" id="actualBTTS"></label>
+            <label>Over HT: <input type="checkbox" id="actualOverHT"></label><br>
+            <button onclick="sendFeedback()">📤 Simpan & Latih Ulang</button>
+            <p id="feedbackStatus"></p>
+        </div>
     </div>
 
     <script>
-        async function trainModel() {
+        let lastFeatures = null; // Untuk menyimpan fitur yang diekstrak
+
+        async function getRecommendation() {
+            const files = document.getElementById('fileInput').files;
+            if (files.length !== 9) {
+                alert("Harap upload tepat 9 file CSV.");
+                return;
+            }
+            const formData = new FormData();
+            for (let f of files) {
+                formData.append('files', f);
+            }
+
+            document.getElementById('status').innerText = "Memproses...";
+            const resp = await fetch('/predict', { method: 'POST', body: formData });
+            const data = await resp.json();
+
+            // Tampilkan dashboard
+            document.getElementById('dashboard').style.display = 'block';
+            document.getElementById('ahValue').innerText = data.ah;
+            document.getElementById('ouValue').innerText = data.ou;
+
+            // Reset warna
+            ['homeBox','awayBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+            ['overBox','underBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+            ['bttsBox','overHtBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+
+            // AH
+            if (data.ah_choice === 'home') {
+                document.getElementById('homeBox').classList.add('green');
+            } else {
+                document.getElementById('awayBox').classList.add('green');
+            }
+
+            // OU
+            if (data.ou_choice === 'over') {
+                document.getElementById('overBox').classList.add('green');
+            } else {
+                document.getElementById('underBox').classList.add('green');
+            }
+
+            // BTTS & Over HT
+            if (data.btts) document.getElementById('bttsBox').classList.add('green');
+            if (data.over_ht) document.getElementById('overHtBox').classList.add('green');
+
+            // Simpan fitur (dikirim oleh server nanti bisa disertakan di response, untuk kemudahan)
+            // Kita bisa modifikasi /predict agar mengembalikan features juga
+            lastFeatures = data.features; // Pastikan backend mengirimkan features
+            document.getElementById('status').innerText = "";
+        }
+
+        async function sendFeedback() {
+            if (!lastFeatures) {
+                alert("Dapatkan rekomendasi dulu.");
+                return;
+            }
+            const formData = new FormData();
+            formData.append('ah_winner', document.getElementById('actualAH').value);
+            formData.append('ou_result', document.getElementById('actualOU').value);
+            formData.append('btts', document.getElementById('actualBTTS').checked ? 1 : 0);
+            formData.append('over_ht', document.getElementById('actualOverHT').checked ? 1 : 0);
+            formData.append('features_json', JSON.stringify(lastFeatures));
+
+            const resp = await fetch('/feedback', { method: 'POST', body: formData });
+            const data = await resp.json();
+            document.getElementById('feedbackStatus').innerText = data.message + (data.accuracy ? ' Akurasi: '+data.accuracy : '');
+        }
+    </script>
+</body>
+</html>        async function trainModel() {
             const fileInput = document.getElementById('csvFile');
             const target = document.getElementById('targetCol').value;
             if (!fileInput.files[0] || !target) {
