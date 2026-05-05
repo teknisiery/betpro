@@ -23,13 +23,6 @@ feature_columns = []
 
 
 def safe_read_csv(file_path, required_columns=None, **kwargs):
-    """
-    Baca CSV dengan aman. 
-    - Cek file ada/tidak.
-    - Cek tidak kosong.
-    - Cek kolom wajib ada.
-    - **kwargs diteruskan ke pd.read_csv (misal header=None, sep, dll).
-    """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {os.path.basename(file_path)} tidak ditemukan.")
     df = pd.read_csv(file_path, **kwargs)
@@ -43,7 +36,17 @@ def safe_read_csv(file_path, required_columns=None, **kwargs):
 
 
 def parse_ah_line(ah_str):
-    parts = ah_str.split('/')
+    # Bersihkan spasi berlebih dan ganti koma jika perlu
+    ah_str = ah_str.strip()
+    # Coba split dengan ' / ' dulu, kalau gagal pakai '/' saja
+    if ' / ' in ah_str:
+        parts = ah_str.split(' / ')
+    else:
+        parts = ah_str.split('/')
+
+    if len(parts) < 3:
+        raise ValueError(f"Format AH tidak valid: {ah_str}")
+
     home_odds = float(parts[0].strip().split()[-1])
     handicap_text = parts[1].strip()
     away_odds = float(parts[2].strip().split()[0])
@@ -51,9 +54,19 @@ def parse_ah_line(ah_str):
 
 
 def parse_ou_line(ou_str):
-    parts = ou_str.split('/')
+    ou_str = ou_str.strip()
+    if ' / ' in ou_str:
+        parts = ou_str.split(' / ')
+    else:
+        parts = ou_str.split('/')
+
+    if len(parts) < 3:
+        raise ValueError(f"Format O/U tidak valid: {ou_str}")
+
+    # Over odds: kata terakhir di parts[0]
     over_odds = float(parts[0].strip().split()[-1])
     line = float(parts[1].strip())
+    # Under odds: kata pertama di parts[2]
     under_odds = float(parts[2].strip().split()[0])
     return over_odds, line, under_odds
 
@@ -61,18 +74,20 @@ def parse_ou_line(ou_str):
 def extract_features_from_files(temp_dir):
     features = {}
 
-    # 01_info.csv – baca tanpa header (header=None) agar bisa akses kolom [0] dan [1]
+    # Baca 01_info.csv dengan toleransi tinggi
     info = safe_read_csv(os.path.join(temp_dir, "01_info.csv"), header=None)
+    # Strip semua nilai
+    info = info.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
-    # Cari baris yang mengandung 'Pre-game AH', dll.
-    mask_pre_ah = info[0] == 'Pre-game AH'
+    # Cari baris yang mengandung 'Pre-game AH' (case insensitive)
+    mask_pre_ah = info[0].str.strip().str.lower() == 'pre-game ah'
     if not mask_pre_ah.any():
         raise ValueError("Baris 'Pre-game AH' tidak ditemukan di 01_info.csv")
     pre_ah_str = info.loc[mask_pre_ah, 1].values[0]
 
-    pre_ou_str = info[info[0] == 'Pre-game O/U'][1].values[0]
-    live_ah_str = info[info[0] == 'Live AH'][1].values[0]
-    live_ou_str = info[info[0] == 'Live O/U'][1].values[0]
+    pre_ou_str = info[info[0].str.strip().str.lower() == 'pre-game o/u'][1].values[0]
+    live_ah_str = info[info[0].str.strip().str.lower() == 'live ah'][1].values[0]
+    live_ou_str = info[info[0].str.strip().str.lower() == 'live o/u'][1].values[0]
 
     pre_home_ah, handicap_text, pre_away_ah = parse_ah_line(pre_ah_str)
     pre_over, ou_line, pre_under = parse_ou_line(pre_ou_str)
@@ -96,7 +111,6 @@ def extract_features_from_files(temp_dir):
     features['delta_ou_over'] = live_over - pre_over
     features['delta_ou_under'] = live_under - pre_under
 
-    # 05_recent_stats.csv
     stats = safe_read_csv(os.path.join(temp_dir, "05_recent_stats.csv"),
                           required_columns=['Metric', 'Home_Last10', 'Away_Last10'])
     home_stats = stats[['Metric', 'Home_Last10']].set_index('Metric').T
@@ -108,7 +122,6 @@ def extract_features_from_files(temp_dir):
     features['home_possession'] = float(home_stats['Possession'].values[0].replace('%', ''))
     features['away_possession'] = float(away_stats['Possession'].values[0].replace('%', ''))
 
-    # ELO files
     elo_home = safe_read_csv(os.path.join(temp_dir, "07_elo_home.csv"), required_columns=['ELO_H'])
     elo_away = safe_read_csv(os.path.join(temp_dir, "08_elo_away.csv"), required_columns=['ELO_A'])
     home_elo = elo_home.iloc[0]['ELO_H']
@@ -117,7 +130,6 @@ def extract_features_from_files(temp_dir):
     features['away_elo'] = away_elo
     features['elo_diff'] = home_elo - away_elo
 
-    # Form files
     form_home = safe_read_csv(os.path.join(temp_dir, "03_home_form.csv"), required_columns=['FT'])
     form_away = safe_read_csv(os.path.join(temp_dir, "04_away_form.csv"), required_columns=['FT'])
 
@@ -131,11 +143,14 @@ def extract_features_from_files(temp_dir):
         df[['HG', 'AG']] = df['FT'].str.split('-', expand=True).astype(int)
         df['Result'] = df.apply(lambda r: get_result(r['HG'], r['AG'], name), axis=1)
         last5 = df.head(min(5, len(df)))
-        features[f'{name}_avg_goals_scored'] = last5['HG'].mean() if name == 'home' else last5['AG'].mean()
-        features[f'{name}_avg_goals_conceded'] = last5['AG'].mean() if name == 'home' else last5['HG'].mean()
+        if name == 'home':
+            features['home_avg_goals_scored'] = last5['HG'].mean()
+            features['home_avg_goals_conceded'] = last5['AG'].mean()
+        else:
+            features['away_avg_goals_scored'] = last5['AG'].mean()
+            features['away_avg_goals_conceded'] = last5['HG'].mean()
         features[f'{name}_form_pts'] = last5['Result'].map({'W': 3, 'D': 1, 'L': 0}).sum()
 
-    # Goals time
     goals_time = safe_read_csv(os.path.join(temp_dir, "06_goals_time.csv"),
                                required_columns=['Home_Scored', 'Away_Scored'])
     home_1h = (int(goals_time['Home_Scored'][0].replace('%', '')) +
@@ -147,7 +162,6 @@ def extract_features_from_files(temp_dir):
     features['home_1h_goal_pct'] = home_1h
     features['away_1h_goal_pct'] = away_1h
 
-    # Master
     master = safe_read_csv(os.path.join(temp_dir, "master_match.csv"), required_columns=['H2H_WDL_10'])
     h2h_str = master['H2H_WDL_10'].values[0]
     nums = re.findall(r'\d+', h2h_str)
