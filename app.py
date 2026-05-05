@@ -9,6 +9,7 @@ import shutil
 import re
 import zipfile
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.multioutput import MultiOutputClassifier
 from sklearn.model_selection import train_test_split
 import uvicorn
 
@@ -23,7 +24,6 @@ feature_columns = []
 
 
 def convert_numpy(obj):
-    """Convert numpy types to native Python types recursively."""
     if isinstance(obj, dict):
         return {k: convert_numpy(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -43,7 +43,7 @@ def safe_read_csv(file_path, required_columns=None, **kwargs):
         raise FileNotFoundError(f"File {os.path.basename(file_path)} tidak ditemukan.")
     df = pd.read_csv(file_path, **kwargs)
     if df.empty:
-        raise ValueError(f"File {os.path.basename(file_path)} kosong (0 baris data).")
+        raise ValueError(f"File {os.path.basename(file_path)} kosong.")
     if required_columns:
         missing = [col for col in required_columns if col not in df.columns]
         if missing:
@@ -57,10 +57,8 @@ def parse_ah_line(ah_str):
         parts = ah_str.split(' / ')
     else:
         parts = ah_str.split('/')
-
     if len(parts) < 3:
         raise ValueError(f"Format AH tidak valid: {ah_str}")
-
     home_odds = float(parts[0].strip().split()[-1])
     handicap_text = parts[1].strip()
     away_odds = float(parts[2].strip().split()[-1])
@@ -73,10 +71,8 @@ def parse_ou_line(ou_str):
         parts = ou_str.split(' / ')
     else:
         parts = ou_str.split('/')
-
     if len(parts) < 3:
         raise ValueError(f"Format O/U tidak valid: {ou_str}")
-
     over_odds = float(parts[0].strip().split()[-1])
     line = float(parts[1].strip())
     under_odds = float(parts[2].strip().split()[-1])
@@ -86,7 +82,6 @@ def parse_ou_line(ou_str):
 def extract_features_from_files(temp_dir):
     features = {}
 
-    # 01_info.csv
     info = safe_read_csv(os.path.join(temp_dir, "01_info.csv"), header=None)
     info = info.map(lambda x: x.strip() if isinstance(x, str) else x)
 
@@ -94,7 +89,6 @@ def extract_features_from_files(temp_dir):
     if not mask_pre_ah.any():
         raise ValueError("Baris 'Pre-game AH' tidak ditemukan di 01_info.csv")
     pre_ah_str = info.loc[mask_pre_ah, 1].values[0]
-
     pre_ou_str = info[info[0].str.strip().str.lower() == 'pre-game o/u'][1].values[0]
     live_ah_str = info[info[0].str.strip().str.lower() == 'live ah'][1].values[0]
     live_ou_str = info[info[0].str.strip().str.lower() == 'live o/u'][1].values[0]
@@ -176,7 +170,7 @@ def extract_features_from_files(temp_dir):
     h2h_str = master['H2H_WDL_10'].values[0]
     nums = re.findall(r'\d+', h2h_str)
     if len(nums) < 3:
-        raise ValueError("Format H2H_WDL_10 di master_match.csv tidak sesuai (butuh 3 angka).")
+        raise ValueError("Format H2H_WDL_10 tidak sesuai (butuh 3 angka).")
     w_away = int(nums[0])
     d = int(nums[1])
     w_home = int(nums[2])
@@ -187,10 +181,7 @@ def extract_features_from_files(temp_dir):
     features['handicap_display'] = live_handicap_text
     features['ou_line_display'] = str(live_ou_line)
 
-    # Konversi semua numpy types ke native Python
-    features = convert_numpy(features)
-
-    return features
+    return convert_numpy(features)
 
 
 def load_or_train_model():
@@ -198,9 +189,10 @@ def load_or_train_model():
     if os.path.exists(MODEL_PATH):
         model = joblib.load(MODEL_PATH)
         df = pd.read_csv(DATA_PATH)
-        feature_columns = [c for c in df.columns if c not in ['ah_winner', 'ou_result', 'btts', 'over_ht']]
+        target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
+        feature_columns = [c for c in df.columns if c not in target_columns]
     else:
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
         feature_columns = []
 
 
@@ -244,7 +236,7 @@ async def predict(zip_file: UploadFile = File(...)):
             over_ht = (features['home_1h_goal_pct'] > 0.3 or features['away_1h_goal_pct'] > 0.3)
         else:
             input_df = pd.DataFrame([features])[feature_columns]
-            preds = model.predict(input_df)[0]
+            preds = model.predict(input_df)[0]  # array [ah, ou, btts, ht]
             ah_choice = 'home' if preds[0] == 1 else 'away'
             ou_choice = 'over' if preds[1] == 1 else 'under'
             btts = bool(preds[2])
@@ -272,45 +264,83 @@ async def predict(zip_file: UploadFile = File(...)):
 
 @app.post("/feedback")
 async def feedback(
-    ah_winner: str = Form(...),
-    ou_result: str = Form(...),
-    btts: int = Form(...),
-    over_ht: int = Form(...),
+    ht_home: int = Form(...),
+    ht_away: int = Form(...),
+    ft_home: int = Form(...),
+    ft_away: int = Form(...),
     features_json: str = Form(...)
 ):
     import json
     features = json.loads(features_json)
-    features['ah_winner'] = 1 if ah_winner == 'home' else 0
-    features['ou_result'] = 1 if ou_result == 'over' else 0
-    features['btts'] = btts
-    features['over_ht'] = over_ht
+    
+    # Hitung hasil aktual berdasarkan skor
+    handicap = features.get('handicap', 0)
+    ou_line = features.get('ou_line', 2.5)
+    
+    # AH actual
+    effective_home = ft_home + handicap
+    if effective_home > ft_away:
+        actual_ah = 'home'
+    elif effective_home < ft_away:
+        actual_ah = 'away'
+    else:
+        actual_ah = 'push'
+    
+    # OU actual
+    total_goals = ft_home + ft_away
+    if total_goals > ou_line:
+        actual_ou = 'over'
+    elif total_goals < ou_line:
+        actual_ou = 'under'
+    else:
+        actual_ou = 'push'
+    
+    actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
+    actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
+    
+    # Siapkan data target dengan NaN untuk push
+    ah_winner = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
+    ou_result = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
+    
+    # Simpan ke dataset
+    features['ah_winner'] = ah_winner
+    features['ou_result'] = ou_result
+    features['btts'] = actual_btts
+    features['over_ht'] = actual_over_ht
 
     if os.path.exists(DATA_PATH):
         df = pd.read_csv(DATA_PATH)
     else:
         df = pd.DataFrame()
-
+    
     new_df = pd.DataFrame([features])
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATA_PATH, index=False)
-
+    
+    # Latih ulang model jika cukup data lengkap
     global model, feature_columns
     target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
-    feature_columns = [c for c in df.columns if c not in target_columns]
-    X = df[feature_columns]
-    y = df[target_columns]
-
-    if len(X) > 10:
+    
+    # Hanya gunakan data yang tidak memiliki NaN di target
+    clean_df = df.dropna(subset=target_columns)
+    if len(clean_df) >= 10:
+        feature_columns = [c for c in clean_df.columns if c not in target_columns]
+        X = clean_df[feature_columns]
+        y = clean_df[target_columns].astype(int)
+        
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
         model.fit(X_train, y_train)
         joblib.dump(model, MODEL_PATH)
         acc = model.score(X_test, y_test)
-        return JSONResponse({"message": "Model updated", "accuracy": acc})
+        message = f"Model updated. Accuracy: {acc:.4f}"
     else:
-        return JSONResponse({"message": "Data collected, need more samples for training"})
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+        message = f"Data tersimpan ({len(clean_df)} sampel lengkap), butuh minimal 10 untuk training."
+    
+    return JSONResponse({
+        "actual_ah": actual_ah,
+        "actual_ou": actual_ou,
+        "actual_btts": actual_btts,
+        "actual_over_ht": actual_over_ht,
+        "message": message
+    })
