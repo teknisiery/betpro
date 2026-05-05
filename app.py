@@ -22,6 +22,22 @@ model = None
 feature_columns = []
 
 
+def convert_numpy(obj):
+    """Convert numpy types to native Python types recursively."""
+    if isinstance(obj, dict):
+        return {k: convert_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy(v) for v in obj]
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
+
+
 def safe_read_csv(file_path, required_columns=None, **kwargs):
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {os.path.basename(file_path)} tidak ditemukan.")
@@ -45,10 +61,9 @@ def parse_ah_line(ah_str):
     if len(parts) < 3:
         raise ValueError(f"Format AH tidak valid: {ah_str}")
 
-    # Ambil ANGKA TERAKHIR di bagian home dan away
     home_odds = float(parts[0].strip().split()[-1])
     handicap_text = parts[1].strip()
-    away_odds = float(parts[2].strip().split()[-1])   # <-- PERBAIKAN
+    away_odds = float(parts[2].strip().split()[-1])
     return home_odds, handicap_text, away_odds
 
 
@@ -64,7 +79,7 @@ def parse_ou_line(ou_str):
 
     over_odds = float(parts[0].strip().split()[-1])
     line = float(parts[1].strip())
-    under_odds = float(parts[2].strip().split()[-1])   # <-- PERBAIKAN
+    under_odds = float(parts[2].strip().split()[-1])
     return over_odds, line, under_odds
 
 
@@ -121,9 +136,9 @@ def extract_features_from_files(temp_dir):
     elo_away = safe_read_csv(os.path.join(temp_dir, "08_elo_away.csv"), required_columns=['ELO_A'])
     home_elo = elo_home.iloc[0]['ELO_H']
     away_elo = elo_away.iloc[0]['ELO_A']
-    features['home_elo'] = home_elo
-    features['away_elo'] = away_elo
-    features['elo_diff'] = home_elo - away_elo
+    features['home_elo'] = float(home_elo)
+    features['away_elo'] = float(away_elo)
+    features['elo_diff'] = float(home_elo - away_elo)
 
     form_home = safe_read_csv(os.path.join(temp_dir, "03_home_form.csv"), required_columns=['FT'])
     form_away = safe_read_csv(os.path.join(temp_dir, "04_away_form.csv"), required_columns=['FT'])
@@ -139,12 +154,12 @@ def extract_features_from_files(temp_dir):
         df['Result'] = df.apply(lambda r: get_result(r['HG'], r['AG'], name), axis=1)
         last5 = df.head(min(5, len(df)))
         if name == 'home':
-            features['home_avg_goals_scored'] = last5['HG'].mean()
-            features['home_avg_goals_conceded'] = last5['AG'].mean()
+            features['home_avg_goals_scored'] = float(last5['HG'].mean())
+            features['home_avg_goals_conceded'] = float(last5['AG'].mean())
         else:
-            features['away_avg_goals_scored'] = last5['AG'].mean()
-            features['away_avg_goals_conceded'] = last5['HG'].mean()
-        features[f'{name}_form_pts'] = last5['Result'].map({'W': 3, 'D': 1, 'L': 0}).sum()
+            features['away_avg_goals_scored'] = float(last5['AG'].mean())
+            features['away_avg_goals_conceded'] = float(last5['HG'].mean())
+        features[f'{name}_form_pts'] = int(last5['Result'].map({'W': 3, 'D': 1, 'L': 0}).sum())
 
     goals_time = safe_read_csv(os.path.join(temp_dir, "06_goals_time.csv"),
                                required_columns=['Home_Scored', 'Away_Scored'])
@@ -154,8 +169,8 @@ def extract_features_from_files(temp_dir):
     away_1h = (int(goals_time['Away_Scored'][0].replace('%', '')) +
                int(goals_time['Away_Scored'][1].replace('%', '')) +
                int(goals_time['Away_Scored'][2].replace('%', ''))) / 100
-    features['home_1h_goal_pct'] = home_1h
-    features['away_1h_goal_pct'] = away_1h
+    features['home_1h_goal_pct'] = float(home_1h)
+    features['away_1h_goal_pct'] = float(away_1h)
 
     master = safe_read_csv(os.path.join(temp_dir, "master_match.csv"), required_columns=['H2H_WDL_10'])
     h2h_str = master['H2H_WDL_10'].values[0]
@@ -171,6 +186,9 @@ def extract_features_from_files(temp_dir):
 
     features['handicap_display'] = live_handicap_text
     features['ou_line_display'] = str(live_ou_line)
+
+    # Konversi semua numpy types ke native Python
+    features = convert_numpy(features)
 
     return features
 
