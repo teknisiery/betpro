@@ -45,9 +45,10 @@ def parse_ah_line(ah_str):
     if len(parts) < 3:
         raise ValueError(f"Format AH tidak valid: {ah_str}")
 
+    # Ambil ANGKA TERAKHIR di bagian home dan away
     home_odds = float(parts[0].strip().split()[-1])
     handicap_text = parts[1].strip()
-    away_odds = float(parts[2].strip().split()[0])
+    away_odds = float(parts[2].strip().split()[-1])   # <-- PERBAIKAN
     return home_odds, handicap_text, away_odds
 
 
@@ -63,19 +64,17 @@ def parse_ou_line(ou_str):
 
     over_odds = float(parts[0].strip().split()[-1])
     line = float(parts[1].strip())
-    under_odds = float(parts[2].strip().split()[0])
+    under_odds = float(parts[2].strip().split()[-1])   # <-- PERBAIKAN
     return over_odds, line, under_odds
 
 
 def extract_features_from_files(temp_dir):
     features = {}
 
-    # Baca 01_info.csv dengan header=None
+    # 01_info.csv
     info = safe_read_csv(os.path.join(temp_dir, "01_info.csv"), header=None)
-    # Strip semua string di seluruh DataFrame (gunakan .map, bukan .applymap)
     info = info.map(lambda x: x.strip() if isinstance(x, str) else x)
 
-    # Cari baris yang mengandung 'Pre-game AH' (case insensitive)
     mask_pre_ah = info[0].str.strip().str.lower() == 'pre-game ah'
     if not mask_pre_ah.any():
         raise ValueError("Baris 'Pre-game AH' tidak ditemukan di 01_info.csv")
