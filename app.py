@@ -106,16 +106,20 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
+    # Perbaikan penentuan handicap: ikuti display yang muncul di dashboard
+    # Jika handicap_text tidak memiliki tanda, kita tentukan berdasarkan odds
     handicap_val = float(handicap_text.replace('-', '').replace('+', '').split('/')[0])
     if handicap_text.startswith('-'):
         handicap = -handicap_val
     elif handicap_text.startswith('+'):
         handicap = handicap_val
     else:
+        # Tidak ada tanda -> gunakan logika: home_odds > away_odds = home underdog (voor +)
         if live_home_ah > live_away_ah:
-            handicap = handicap_val
+            handicap = handicap_val   # home underdog, dapat voor
         else:
-            handicap = -handicap_val
+            handicap = -handicap_val  # home favorit, beri voor
+
     features['handicap'] = handicap
 
     features['delta_ah_home'] = live_home_ah - pre_home_ah
@@ -340,20 +344,21 @@ async def feedback(
         actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
         actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
 
-        # Simpan target – pastikan None hanya untuk push
+        # Simpan target
         target_ah = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
         target_ou = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
         target_btts = actual_btts
         target_ht = actual_over_ht
 
-        # Hanya simpan fitur numerik + target
-        clean_features = {k: v for k, v in features.items() if not k.startswith('pred_')}
+        # Bersihkan fitur yang tidak perlu
+        clean_features = {k: v for k, v in features.items()
+                         if not k.startswith('pred_') and k not in ['handicap_display', 'ou_line_display']}
         clean_features['ah_winner'] = target_ah
         clean_features['ou_result'] = target_ou
         clean_features['btts'] = target_btts
         clean_features['over_ht'] = target_ht
 
-        # Baca dataset lama atau buat baru
+        # Simpan dataset
         if os.path.exists(DATA_PATH):
             df = pd.read_csv(DATA_PATH)
         else:
@@ -387,7 +392,7 @@ async def feedback(
 
         total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
-        # Simpan riwayat profit
+        # Riwayat profit
         home_team = features.get('home_team', 'Home')
         away_team = features.get('away_team', 'Away')
         match_date = features.get('match_date', 'unknown')
@@ -419,7 +424,9 @@ async def feedback(
         global model, feature_columns
         target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
         clean_df = df.dropna(subset=target_columns)
-        debug_info = f"Dataset shape: {df.shape}, after dropna: {clean_df.shape}, target values: ah={target_ah}, ou={target_ou}, btts={target_btts}, ht={target_ht}"
+        debug_info = (f"handicap={handicap}, effective_home={effective_home:.2f}, ft_away={ft_away}, "
+                      f"actual_ah={actual_ah}, target_ah={target_ah}, dataset_shape={df.shape}, "
+                      f"clean_shape={clean_df.shape}")
 
         if len(clean_df) >= 10:
             feature_columns = [c for c in clean_df.columns if c not in target_columns]
