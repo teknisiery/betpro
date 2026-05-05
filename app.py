@@ -84,6 +84,7 @@ def parse_ou_line(ou_str):
 def extract_features_from_files(temp_dir):
     features = {}
 
+    # 01_info.csv
     info = safe_read_csv(os.path.join(temp_dir, "01_info.csv"), header=None)
     info = info.map(lambda x: x.strip() if isinstance(x, str) else x)
 
@@ -123,7 +124,7 @@ def extract_features_from_files(temp_dir):
     features['delta_ou_over'] = live_over - pre_over
     features['delta_ou_under'] = live_under - pre_under
 
-    # --- tim & tanggal ---
+    # tim & tanggal
     home_team = str(info[info[0] == 'Home'][1].values[0])
     away_team = str(info[info[0] == 'Away'][1].values[0])
     match_date = str(info[info[0] == 'Tanggal'][1].values[0])
@@ -131,25 +132,26 @@ def extract_features_from_files(temp_dir):
     features['away_team'] = away_team
     features['match_date'] = match_date
 
+    # 05_recent_stats.csv (dengan Last3 dan Last10)
     stats = safe_read_csv(os.path.join(temp_dir, "05_recent_stats.csv"),
-                          required_columns=['Metric', 'Home_Last10', 'Away_Last10'])
-    home_stats = stats[['Metric', 'Home_Last10']].set_index('Metric').T
-    away_stats = stats[['Metric', 'Away_Last10']].set_index('Metric').T
-    features['home_goals'] = float(home_stats['Goal'].values[0])
-    features['away_goals'] = float(away_stats['Goal'].values[0])
-    features['home_shots'] = float(home_stats['Shot(OT)'].values[0])
-    features['away_shots'] = float(away_stats['Shot(OT)'].values[0])
-    features['home_possession'] = float(home_stats['Possession'].values[0].replace('%', ''))
-    features['away_possession'] = float(away_stats['Possession'].values[0].replace('%', ''))
+                          required_columns=['Metric', 'Home_Last3', 'Home_Last10', 'Away_Last3', 'Away_Last10'])
+    stats = stats.set_index('Metric')
+    for metric, feat_name in [('Goal','goals'), ('Loss','loss'), ('Shot(OT)','shots'),
+                              ('Corner Kicks','corners'), ('Yellow Cards','cards'),
+                              ('Fouls','fouls'), ('Possession','possession')]:
+        features[f'home_{feat_name}_l3'] = float(stats.loc[metric, 'Home_Last3'].replace('%',''))
+        features[f'home_{feat_name}_l10'] = float(stats.loc[metric, 'Home_Last10'].replace('%',''))
+        features[f'away_{feat_name}_l3'] = float(stats.loc[metric, 'Away_Last3'].replace('%',''))
+        features[f'away_{feat_name}_l10'] = float(stats.loc[metric, 'Away_Last10'].replace('%',''))
 
+    # ELO
     elo_home = safe_read_csv(os.path.join(temp_dir, "07_elo_home.csv"), required_columns=['ELO_H'])
     elo_away = safe_read_csv(os.path.join(temp_dir, "08_elo_away.csv"), required_columns=['ELO_A'])
-    home_elo = elo_home.iloc[0]['ELO_H']
-    away_elo = elo_away.iloc[0]['ELO_A']
-    features['home_elo'] = float(home_elo)
-    features['away_elo'] = float(away_elo)
-    features['elo_diff'] = float(home_elo - away_elo)
+    features['home_elo'] = float(elo_home.iloc[0]['ELO_H'])
+    features['away_elo'] = float(elo_away.iloc[0]['ELO_A'])
+    features['elo_diff'] = features['home_elo'] - features['away_elo']
 
+    # Form
     form_home = safe_read_csv(os.path.join(temp_dir, "03_home_form.csv"), required_columns=['FT'])
     form_away = safe_read_csv(os.path.join(temp_dir, "04_away_form.csv"), required_columns=['FT'])
 
@@ -164,13 +166,14 @@ def extract_features_from_files(temp_dir):
         df['Result'] = df.apply(lambda r: get_result(r['HG'], r['AG'], name), axis=1)
         last5 = df.head(min(5, len(df)))
         if name == 'home':
-            features['home_avg_goals_scored'] = float(last5['HG'].mean())
-            features['home_avg_goals_conceded'] = float(last5['AG'].mean())
+            features['home_avg_goals_scored_l5'] = float(last5['HG'].mean())
+            features['home_avg_goals_conceded_l5'] = float(last5['AG'].mean())
         else:
-            features['away_avg_goals_scored'] = float(last5['AG'].mean())
-            features['away_avg_goals_conceded'] = float(last5['HG'].mean())
+            features['away_avg_goals_scored_l5'] = float(last5['AG'].mean())
+            features['away_avg_goals_conceded_l5'] = float(last5['HG'].mean())
         features[f'{name}_form_pts'] = int(last5['Result'].map({'W': 3, 'D': 1, 'L': 0}).sum())
 
+    # Goals time
     goals_time = safe_read_csv(os.path.join(temp_dir, "06_goals_time.csv"),
                                required_columns=['Home_Scored', 'Away_Scored'])
     home_1h = (int(goals_time['Home_Scored'][0].replace('%', '')) +
@@ -182,17 +185,15 @@ def extract_features_from_files(temp_dir):
     features['home_1h_goal_pct'] = float(home_1h)
     features['away_1h_goal_pct'] = float(away_1h)
 
+    # Master H2H
     master = safe_read_csv(os.path.join(temp_dir, "master_match.csv"), required_columns=['H2H_WDL_10'])
     h2h_str = master['H2H_WDL_10'].values[0]
     nums = re.findall(r'\d+', h2h_str)
     if len(nums) < 3:
-        raise ValueError("Format H2H_WDL_10 tidak sesuai (butuh 3 angka).")
-    w_away = int(nums[0])
-    d = int(nums[1])
-    w_home = int(nums[2])
-    features['h2h_home_wins'] = w_home
-    features['h2h_away_wins'] = w_away
-    features['h2h_draws'] = d
+        raise ValueError("Format H2H_WDL_10 tidak sesuai.")
+    features['h2h_home_wins'] = int(nums[0])
+    features['h2h_away_wins'] = int(nums[1])
+    features['h2h_draws'] = int(nums[2])
 
     features['handicap_display'] = live_handicap_text
     features['ou_line_display'] = str(live_ou_line)
@@ -240,15 +241,16 @@ async def predict(zip_file: UploadFile = File(...)):
 
         global model, feature_columns
         if model is None or len(feature_columns) == 0:
+            # rule-based
             if features['handicap'] < 0:
                 ah_choice = 'away' if features['elo_diff'] < -10 else 'home'
             else:
                 ah_choice = 'home' if features['elo_diff'] > 10 else 'away'
 
-            avg_goals = features['home_goals'] + features['away_goals']
+            avg_goals = features['home_goals_l10'] + features['away_goals_l10']
             ou_choice = 'over' if avg_goals > 2.75 else 'under'
 
-            btts = (features['home_goals'] >= 1.0 and features['away_goals'] >= 1.0)
+            btts = (features['home_goals_l10'] >= 1.0 and features['away_goals_l10'] >= 1.0)
             over_ht = (features['home_1h_goal_pct'] > 0.3 or features['away_1h_goal_pct'] > 0.3)
         else:
             input_df = pd.DataFrame([features])[feature_columns]
@@ -266,7 +268,6 @@ async def predict(zip_file: UploadFile = File(...)):
         features['pred_btts'] = btts
         features['pred_over_ht'] = over_ht
 
-        # simpan nama tim & tanggal untuk dikembalikan ke frontend
         home_team = features.get('home_team', 'Home')
         away_team = features.get('away_team', 'Away')
         match_date = features.get('match_date', '')
@@ -311,20 +312,10 @@ async def feedback(
     ou_line = features.get('ou_line', 2.5)
 
     effective_home = ft_home + handicap
-    if effective_home > ft_away:
-        actual_ah = 'home'
-    elif effective_home < ft_away:
-        actual_ah = 'away'
-    else:
-        actual_ah = 'push'
+    actual_ah = 'home' if effective_home > ft_away else ('away' if effective_home < ft_away else 'push')
 
     total_goals = ft_home + ft_away
-    if total_goals > ou_line:
-        actual_ou = 'over'
-    elif total_goals < ou_line:
-        actual_ou = 'under'
-    else:
-        actual_ou = 'push'
+    actual_ou = 'over' if total_goals > ou_line else ('under' if total_goals < ou_line else 'push')
 
     actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
     actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
@@ -334,49 +325,36 @@ async def feedback(
     features['btts'] = actual_btts
     features['over_ht'] = actual_over_ht
 
-    # Simpan dataset
     if os.path.exists(DATA_PATH):
         df = pd.read_csv(DATA_PATH)
     else:
         df = pd.DataFrame()
-
     new_df = pd.DataFrame([features])
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATA_PATH, index=False)
 
-    # Hitung profit
+    # Profit
     ah_home_odds = features.get('ah_home_odds', 1.0)
     ah_away_odds = features.get('ah_away_odds', 1.0)
     over_odds = features.get('over_odds', 1.0)
     under_odds = features.get('under_odds', 1.0)
 
-    profit_ah = 0
-    profit_ou = 0
-    profit_btts = 0
-    profit_ht = 0
-
+    profit_ah = profit_ou = profit_btts = profit_ht = 0
     if actual_ah != 'push':
         odds = ah_home_odds if pred_ah == 'home' else ah_away_odds
         profit_ah = (odds - 1) * 100 if pred_ah == actual_ah else -100
-
     if actual_ou != 'push':
         odds = over_odds if pred_ou == 'over' else under_odds
         profit_ou = (odds - 1) * 100 if pred_ou == actual_ou else -100
-
     profit_btts = 50 if pred_btts == bool(actual_btts) else -50
     profit_ht = 50 if pred_over_ht == bool(actual_over_ht) else -50
-
     total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
-    # --- Simpan riwayat profit ---
-    home_team = features.get('home_team', 'Home')
-    away_team = features.get('away_team', 'Away')
-    match_date = features.get('match_date', 'unknown')
-
+    # Simpan riwayat
     record = {
-        'date': match_date,
-        'home': home_team,
-        'away': away_team,
+        'date': features.get('match_date', 'unknown'),
+        'home': features.get('home_team', 'Home'),
+        'away': features.get('away_team', 'Away'),
         'score': f"{ft_home}-{ft_away}",
         'profit_ah': profit_ah,
         'profit_ou': profit_ou,
@@ -385,19 +363,15 @@ async def feedback(
         'total_profit': total_profit,
         'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
-
     if os.path.exists(PROFIT_HISTORY_PATH):
         history_df = pd.read_csv(PROFIT_HISTORY_PATH)
     else:
         history_df = pd.DataFrame()
-
     history_df = pd.concat([history_df, pd.DataFrame([record])], ignore_index=True)
     history_df.to_csv(PROFIT_HISTORY_PATH, index=False)
-
-    # Total akumulasi
     total_accumulated = history_df['total_profit'].sum()
 
-    # Training model
+    # Training
     global model, feature_columns
     target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
     clean_df = df.dropna(subset=target_columns)
