@@ -22,11 +22,17 @@ model = None
 feature_columns = []
 
 
-def safe_read_csv(file_path, required_columns=None):
-    """Baca CSV dan pastikan tidak kosong."""
+def safe_read_csv(file_path, required_columns=None, **kwargs):
+    """
+    Baca CSV dengan aman. 
+    - Cek file ada/tidak.
+    - Cek tidak kosong.
+    - Cek kolom wajib ada.
+    - **kwargs diteruskan ke pd.read_csv (misal header=None, sep, dll).
+    """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File {os.path.basename(file_path)} tidak ditemukan.")
-    df = pd.read_csv(file_path)
+    df = pd.read_csv(file_path, **kwargs)
     if df.empty:
         raise ValueError(f"File {os.path.basename(file_path)} kosong (0 baris data).")
     if required_columns:
@@ -55,12 +61,15 @@ def parse_ou_line(ou_str):
 def extract_features_from_files(temp_dir):
     features = {}
 
-    # 01_info.csv (robust)
+    # 01_info.csv – baca tanpa header (header=None) agar bisa akses kolom [0] dan [1]
     info = safe_read_csv(os.path.join(temp_dir, "01_info.csv"), header=None)
-    pre_ah_str = info[info[0] == 'Pre-game AH'][1].values
-    if len(pre_ah_str) == 0:
+
+    # Cari baris yang mengandung 'Pre-game AH', dll.
+    mask_pre_ah = info[0] == 'Pre-game AH'
+    if not mask_pre_ah.any():
         raise ValueError("Baris 'Pre-game AH' tidak ditemukan di 01_info.csv")
-    pre_ah_str = pre_ah_str[0]
+    pre_ah_str = info.loc[mask_pre_ah, 1].values[0]
+
     pre_ou_str = info[info[0] == 'Pre-game O/U'][1].values[0]
     live_ah_str = info[info[0] == 'Live AH'][1].values[0]
     live_ou_str = info[info[0] == 'Live O/U'][1].values[0]
@@ -88,7 +97,8 @@ def extract_features_from_files(temp_dir):
     features['delta_ou_under'] = live_under - pre_under
 
     # 05_recent_stats.csv
-    stats = safe_read_csv(os.path.join(temp_dir, "05_recent_stats.csv"), required_columns=['Metric', 'Home_Last10', 'Away_Last10'])
+    stats = safe_read_csv(os.path.join(temp_dir, "05_recent_stats.csv"),
+                          required_columns=['Metric', 'Home_Last10', 'Away_Last10'])
     home_stats = stats[['Metric', 'Home_Last10']].set_index('Metric').T
     away_stats = stats[['Metric', 'Away_Last10']].set_index('Metric').T
     features['home_goals'] = float(home_stats['Goal'].values[0])
@@ -126,7 +136,8 @@ def extract_features_from_files(temp_dir):
         features[f'{name}_form_pts'] = last5['Result'].map({'W': 3, 'D': 1, 'L': 0}).sum()
 
     # Goals time
-    goals_time = safe_read_csv(os.path.join(temp_dir, "06_goals_time.csv"), required_columns=['Home_Scored', 'Away_Scored'])
+    goals_time = safe_read_csv(os.path.join(temp_dir, "06_goals_time.csv"),
+                               required_columns=['Home_Scored', 'Away_Scored'])
     home_1h = (int(goals_time['Home_Scored'][0].replace('%', '')) +
                int(goals_time['Home_Scored'][1].replace('%', '')) +
                int(goals_time['Home_Scored'][2].replace('%', ''))) / 100
