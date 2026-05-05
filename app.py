@@ -104,11 +104,23 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
+    # ---------- HANDICAP DENGAN ATURAN ODDS ----------
+    # Jika home_odds > away_odds → away lebih difavoritkan → handicap untuk home adalah positif
+    # Nilai handicap diambil dari text, misal "0/0.5" → 0.25
     handicap_val = float(handicap_text.replace('-', '').replace('+', '').split('/')[0])
     if handicap_text.startswith('-'):
-        features['handicap'] = -handicap_val
+        handicap = -handicap_val
+    elif handicap_text.startswith('+'):
+        handicap = handicap_val
     else:
-        features['handicap'] = handicap_val
+        # Tidak ada tanda, tentukan arah berdasarkan odds
+        if live_home_ah > live_away_ah:
+            # away lebih diunggulkan → home dapat voor (+)
+            handicap = handicap_val
+        else:
+            # home lebih diunggulkan → home beri voor (-)
+            handicap = -handicap_val
+    features['handicap'] = handicap
 
     features['delta_ah_home'] = live_home_ah - pre_home_ah
     features['delta_ah_away'] = live_away_ah - pre_away_ah
@@ -245,6 +257,12 @@ async def predict(zip_file: UploadFile = File(...)):
         handicap_display = features.pop('handicap_display', '0/0.5')
         ou_line_display = features.pop('ou_line_display', '3')
 
+        # Sertakan prediksi ke dalam fitur yang akan dikirim ke frontend
+        features['pred_ah'] = ah_choice
+        features['pred_ou'] = ou_choice
+        features['pred_btts'] = btts
+        features['pred_over_ht'] = over_ht
+
         shutil.rmtree(temp_dir)
 
         return JSONResponse({
@@ -272,6 +290,12 @@ async def feedback(
 ):
     import json
     features = json.loads(features_json)
+
+    # Ambil prediksi yang dikirim dari frontend
+    pred_ah = features.get('pred_ah', 'home')
+    pred_ou = features.get('pred_ou', 'over')
+    pred_btts = features.get('pred_btts', False)
+    pred_over_ht = features.get('pred_over_ht', False)
 
     # Hitung hasil aktual
     handicap = features.get('handicap', 0)
@@ -311,13 +335,7 @@ async def feedback(
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATA_PATH, index=False)
 
-    # Hitung profit
-    pred_ah = features.get('ah_choice', 'home')
-    pred_ou = features.get('ou_choice', 'over')
-    pred_btts = features.get('btts', False)
-    pred_over_ht = features.get('over_ht', False)
-
-    # Ambil odds
+    # Hitung profit berdasarkan prediksi dan odds
     ah_home_odds = features.get('ah_home_odds', 1.0)
     ah_away_odds = features.get('ah_away_odds', 1.0)
     over_odds = features.get('over_odds', 1.0)
@@ -355,10 +373,10 @@ async def feedback(
         profit_ou = 0
 
     # BTTS
-    profit_btts = 50 if (pred_btts == bool(actual_btts)) else -50
+    profit_btts = 50 if pred_btts == bool(actual_btts) else -50
 
     # Over HT
-    profit_ht = 50 if (pred_over_ht == bool(actual_over_ht)) else -50
+    profit_ht = 50 if pred_over_ht == bool(actual_over_ht) else -50
 
     total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
