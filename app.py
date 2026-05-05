@@ -247,18 +247,14 @@ async def predict(zip_file: UploadFile = File(...)):
 
         global model, feature_columns
         if model is None or len(feature_columns) == 0:
-            # ========== RULE‑BASED BARU ==========
             handicap = features['handicap']
             elo_diff = features['elo_diff']
             if handicap < 0:
-                # Away difavoritkan
                 ah_choice = 'away' if elo_diff < 0 else 'home'
             elif handicap > 0:
-                # Home difavoritkan
                 ah_choice = 'home' if elo_diff > -10 else 'away'
-            else:  # handicap == 0
+            else:
                 ah_choice = 'home' if elo_diff > 0 else 'away'
-            # =====================================
 
             avg_goals = features['home_goals_l10'] + features['away_goals_l10']
             ou_choice = 'over' if avg_goals > features['ou_line'] else 'under'
@@ -313,135 +309,142 @@ async def feedback(
     ft_away: int = Form(...),
     features_json: str = Form(...)
 ):
-    import json
-    features = json.loads(features_json)
+    try:
+        import json
+        features = json.loads(features_json)
 
-    pred_ah = features.get('pred_ah', 'home')
-    pred_ou = features.get('pred_ou', 'over')
-    pred_btts = features.get('pred_btts', False)
-    pred_over_ht = features.get('pred_over_ht', False)
+        pred_ah = features.get('pred_ah', 'home')
+        pred_ou = features.get('pred_ou', 'over')
+        pred_btts = features.get('pred_btts', False)
+        pred_over_ht = features.get('pred_over_ht', False)
 
-    handicap = features.get('handicap', 0)
-    ou_line = features.get('ou_line', 2.5)
+        handicap = features.get('handicap', 0)
+        ou_line = features.get('ou_line', 2.5)
 
-    effective_home = ft_home + handicap
-    if effective_home > ft_away:
-        actual_ah = 'home'
-    elif effective_home < ft_away:
-        actual_ah = 'away'
-    else:
-        actual_ah = 'push'
+        effective_home = ft_home + handicap
+        if effective_home > ft_away:
+            actual_ah = 'home'
+        elif effective_home < ft_away:
+            actual_ah = 'away'
+        else:
+            actual_ah = 'push'
 
-    total_goals = ft_home + ft_away
-    if total_goals > ou_line:
-        actual_ou = 'over'
-    elif total_goals < ou_line:
-        actual_ou = 'under'
-    else:
-        actual_ou = 'push'
+        total_goals = ft_home + ft_away
+        if total_goals > ou_line:
+            actual_ou = 'over'
+        elif total_goals < ou_line:
+            actual_ou = 'under'
+        else:
+            actual_ou = 'push'
 
-    actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
-    actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
+        actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
+        actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
 
-    features['ah_winner'] = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
-    features['ou_result'] = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
-    features['btts'] = actual_btts
-    features['over_ht'] = actual_over_ht
+        features['ah_winner'] = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
+        features['ou_result'] = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
+        features['btts'] = actual_btts
+        features['over_ht'] = actual_over_ht
 
-    if os.path.exists(DATA_PATH):
-        df = pd.read_csv(DATA_PATH)
-    else:
-        df = pd.DataFrame()
+        # Simpan dataset
+        if os.path.exists(DATA_PATH):
+            df = pd.read_csv(DATA_PATH)
+        else:
+            df = pd.DataFrame()
 
-    new_df = pd.DataFrame([features])
-    df = pd.concat([df, new_df], ignore_index=True)
-    df.to_csv(DATA_PATH, index=False)
+        new_df = pd.DataFrame([features])
+        df = pd.concat([df, new_df], ignore_index=True)
+        df.to_csv(DATA_PATH, index=False)
 
-    ah_home_odds = float(features.get('ah_home_odds', 1.0))
-    ah_away_odds = float(features.get('ah_away_odds', 1.0))
-    over_odds = float(features.get('over_odds', 1.0))
-    under_odds = float(features.get('under_odds', 1.0))
+        # Hitung profit
+        ah_home_odds = float(features.get('ah_home_odds', 1.0))
+        ah_away_odds = float(features.get('ah_away_odds', 1.0))
+        over_odds = float(features.get('over_odds', 1.0))
+        under_odds = float(features.get('under_odds', 1.0))
 
-    profit_ah = 0.0
-    profit_ou = 0.0
-    profit_btts = 0.0
-    profit_ht = 0.0
+        profit_ah = 0.0
+        profit_ou = 0.0
+        profit_btts = 0.0
+        profit_ht = 0.0
 
-    if actual_ah != 'push':
-        odds = ah_home_odds if pred_ah == 'home' else ah_away_odds
-        profit_ah = (odds - 1.0) * 100.0 if pred_ah == actual_ah else -100.0
+        if actual_ah != 'push':
+            odds = ah_home_odds if pred_ah == 'home' else ah_away_odds
+            profit_ah = (odds - 1.0) * 100.0 if pred_ah == actual_ah else -100.0
 
-    if actual_ou != 'push':
-        odds = over_odds if pred_ou == 'over' else under_odds
-        profit_ou = (odds - 1.0) * 100.0 if pred_ou == actual_ou else -100.0
+        if actual_ou != 'push':
+            odds = over_odds if pred_ou == 'over' else under_odds
+            profit_ou = (odds - 1.0) * 100.0 if pred_ou == actual_ou else -100.0
 
-    profit_btts = 50.0 if pred_btts == bool(actual_btts) else -50.0
-    profit_ht = 50.0 if pred_over_ht == bool(actual_over_ht) else -50.0
+        profit_btts = 50.0 if pred_btts == bool(actual_btts) else -50.0
+        profit_ht = 50.0 if pred_over_ht == bool(actual_over_ht) else -50.0
 
-    total_profit = profit_ah + profit_ou + profit_btts + profit_ht
+        total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
-    home_team = features.get('home_team', 'Home')
-    away_team = features.get('away_team', 'Away')
-    match_date = features.get('match_date', 'unknown')
+        # Simpan riwayat profit
+        home_team = features.get('home_team', 'Home')
+        away_team = features.get('away_team', 'Away')
+        match_date = features.get('match_date', 'unknown')
 
-    record = {
-        'date': match_date,
-        'home': home_team,
-        'away': away_team,
-        'score': f"{ft_home}-{ft_away}",
-        'profit_ah': profit_ah,
-        'profit_ou': profit_ou,
-        'profit_btts': profit_btts,
-        'profit_ht': profit_ht,
-        'total_profit': total_profit,
-        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    }
+        record = {
+            'date': match_date,
+            'home': home_team,
+            'away': away_team,
+            'score': f"{ft_home}-{ft_away}",
+            'profit_ah': profit_ah,
+            'profit_ou': profit_ou,
+            'profit_btts': profit_btts,
+            'profit_ht': profit_ht,
+            'total_profit': total_profit,
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
 
-    if os.path.exists(PROFIT_HISTORY_PATH):
-        history_df = pd.read_csv(PROFIT_HISTORY_PATH)
-    else:
-        history_df = pd.DataFrame()
+        if os.path.exists(PROFIT_HISTORY_PATH):
+            history_df = pd.read_csv(PROFIT_HISTORY_PATH)
+        else:
+            history_df = pd.DataFrame()
 
-    history_df = pd.concat([history_df, pd.DataFrame([record])], ignore_index=True)
-    history_df.to_csv(PROFIT_HISTORY_PATH, index=False)
+        history_df = pd.concat([history_df, pd.DataFrame([record])], ignore_index=True)
+        history_df.to_csv(PROFIT_HISTORY_PATH, index=False)
 
-    total_accumulated = float(history_df['total_profit'].sum())
+        total_accumulated = float(history_df['total_profit'].sum())
 
-    global model, feature_columns
-    target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
-    clean_df = df.dropna(subset=target_columns)
-    if len(clean_df) >= 10:
-        feature_columns = [c for c in clean_df.columns if c not in target_columns]
-        X = clean_df[feature_columns]
-        y = clean_df[target_columns].astype(int)
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
-        model.fit(X_train, y_train)
-        joblib.dump(model, MODEL_PATH)
-        acc = model.score(X_test, y_test)
-        training_msg = f"Model updated. Accuracy: {acc:.4f}"
-    else:
-        training_msg = f"Data tersimpan ({len(clean_df)} sampel lengkap), butuh minimal 10 untuk training."
+        # Training model
+        global model, feature_columns
+        target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
+        clean_df = df.dropna(subset=target_columns)
+        if len(clean_df) >= 10:
+            feature_columns = [c for c in clean_df.columns if c not in target_columns]
+            X = clean_df[feature_columns]
+            y = clean_df[target_columns].astype(int)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
+            model.fit(X_train, y_train)
+            joblib.dump(model, MODEL_PATH)
+            acc = model.score(X_test, y_test)
+            training_msg = f"Model updated. Accuracy: {acc:.4f}"
+        else:
+            training_msg = f"Data tersimpan ({len(clean_df)} sampel lengkap), butuh minimal 10 untuk training."
 
-    response_data = {
-        "actual_ah": actual_ah,
-        "actual_ou": actual_ou,
-        "actual_btts": actual_btts,
-        "actual_over_ht": actual_over_ht,
-        "profit": {
-            "ah": profit_ah,
-            "ou": profit_ou,
-            "btts": profit_btts,
-            "over_ht": profit_ht,
-            "total": total_profit
-        },
-        "total_accumulated": total_accumulated,
-        "history": history_df[['home', 'away', 'score', 'total_profit']].tail(5).to_dict('records'),
-        "message": training_msg
-    }
-    response_data = convert_numpy(response_data)
+        response_data = {
+            "actual_ah": actual_ah,
+            "actual_ou": actual_ou,
+            "actual_btts": actual_btts,
+            "actual_over_ht": actual_over_ht,
+            "profit": {
+                "ah": profit_ah,
+                "ou": profit_ou,
+                "btts": profit_btts,
+                "over_ht": profit_ht,
+                "total": total_profit
+            },
+            "total_accumulated": total_accumulated,
+            "history": history_df[['home', 'away', 'score', 'total_profit']].tail(5).to_dict('records'),
+            "message": training_msg
+        }
+        response_data = convert_numpy(response_data)
+        return JSONResponse(response_data)
 
-    return JSONResponse(response_data)
+    except Exception as e:
+        return JSONResponse({"error": f"Feedback failed: {str(e)}"}, status_code=500)
 
 
 if __name__ == "__main__":
