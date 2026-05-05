@@ -236,7 +236,7 @@ async def predict(zip_file: UploadFile = File(...)):
             over_ht = (features['home_1h_goal_pct'] > 0.3 or features['away_1h_goal_pct'] > 0.3)
         else:
             input_df = pd.DataFrame([features])[feature_columns]
-            preds = model.predict(input_df)[0]  # array [ah, ou, btts, ht]
+            preds = model.predict(input_df)[0]
             ah_choice = 'home' if preds[0] == 1 else 'away'
             ou_choice = 'over' if preds[1] == 1 else 'under'
             btts = bool(preds[2])
@@ -272,12 +272,11 @@ async def feedback(
 ):
     import json
     features = json.loads(features_json)
-    
-    # Hitung hasil aktual berdasarkan skor
+
+    # Hitung hasil aktual
     handicap = features.get('handicap', 0)
     ou_line = features.get('ou_line', 2.5)
-    
-    # AH actual
+
     effective_home = ft_home + handicap
     if effective_home > ft_away:
         actual_ah = 'home'
@@ -285,8 +284,7 @@ async def feedback(
         actual_ah = 'away'
     else:
         actual_ah = 'push'
-    
-    # OU actual
+
     total_goals = ft_home + ft_away
     if total_goals > ou_line:
         actual_ou = 'over'
@@ -294,17 +292,13 @@ async def feedback(
         actual_ou = 'under'
     else:
         actual_ou = 'push'
-    
+
     actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
     actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
-    
-    # Siapkan data target dengan NaN untuk push
-    ah_winner = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
-    ou_result = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
-    
-    # Simpan ke dataset
-    features['ah_winner'] = ah_winner
-    features['ou_result'] = ou_result
+
+    # Simpan target
+    features['ah_winner'] = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
+    features['ou_result'] = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
     features['btts'] = actual_btts
     features['over_ht'] = actual_over_ht
 
@@ -312,35 +306,90 @@ async def feedback(
         df = pd.read_csv(DATA_PATH)
     else:
         df = pd.DataFrame()
-    
+
     new_df = pd.DataFrame([features])
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATA_PATH, index=False)
-    
-    # Latih ulang model jika cukup data lengkap
+
+    # Hitung profit
+    pred_ah = features.get('ah_choice', 'home')
+    pred_ou = features.get('ou_choice', 'over')
+    pred_btts = features.get('btts', False)
+    pred_over_ht = features.get('over_ht', False)
+
+    # Ambil odds
+    ah_home_odds = features.get('ah_home_odds', 1.0)
+    ah_away_odds = features.get('ah_away_odds', 1.0)
+    over_odds = features.get('over_odds', 1.0)
+    under_odds = features.get('under_odds', 1.0)
+
+    profit_ah = 0
+    profit_ou = 0
+    profit_btts = 0
+    profit_ht = 0
+
+    # AH
+    if actual_ah != 'push':
+        if pred_ah == 'home':
+            odds = ah_home_odds
+        else:
+            odds = ah_away_odds
+        if pred_ah == actual_ah:
+            profit_ah = (odds - 1) * 100
+        else:
+            profit_ah = -100
+    else:
+        profit_ah = 0
+
+    # OU
+    if actual_ou != 'push':
+        if pred_ou == 'over':
+            odds = over_odds
+        else:
+            odds = under_odds
+        if pred_ou == actual_ou:
+            profit_ou = (odds - 1) * 100
+        else:
+            profit_ou = -100
+    else:
+        profit_ou = 0
+
+    # BTTS
+    profit_btts = 50 if (pred_btts == bool(actual_btts)) else -50
+
+    # Over HT
+    profit_ht = 50 if (pred_over_ht == bool(actual_over_ht)) else -50
+
+    total_profit = profit_ah + profit_ou + profit_btts + profit_ht
+
+    # Training model
     global model, feature_columns
     target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
-    
-    # Hanya gunakan data yang tidak memiliki NaN di target
     clean_df = df.dropna(subset=target_columns)
     if len(clean_df) >= 10:
         feature_columns = [c for c in clean_df.columns if c not in target_columns]
         X = clean_df[feature_columns]
         y = clean_df[target_columns].astype(int)
-        
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
         model.fit(X_train, y_train)
         joblib.dump(model, MODEL_PATH)
         acc = model.score(X_test, y_test)
-        message = f"Model updated. Accuracy: {acc:.4f}"
+        training_msg = f"Model updated. Accuracy: {acc:.4f}"
     else:
-        message = f"Data tersimpan ({len(clean_df)} sampel lengkap), butuh minimal 10 untuk training."
-    
+        training_msg = f"Data tersimpan ({len(clean_df)} sampel lengkap), butuh minimal 10 untuk training."
+
     return JSONResponse({
         "actual_ah": actual_ah,
         "actual_ou": actual_ou,
         "actual_btts": actual_btts,
         "actual_over_ht": actual_over_ht,
-        "message": message
+        "profit": {
+            "ah": profit_ah,
+            "ou": profit_ou,
+            "btts": profit_btts,
+            "over_ht": profit_ht,
+            "total": total_profit
+        },
+        "message": training_msg
     })
