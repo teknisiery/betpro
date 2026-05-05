@@ -16,6 +16,9 @@
         .status { font-size: 24px; position: absolute; top: 5px; right: 10px; }
         .score-inputs { display: flex; justify-content: center; gap: 10px; margin: 10px 0; }
         .score-inputs input { width: 60px; padding: 5px; }
+        .profit { font-size: 18px; margin-top: 10px; }
+        .positive { color: green; }
+        .negative { color: red; }
     </style>
 </head>
 <body>
@@ -55,12 +58,13 @@
             </div>
             <button onclick="sendFeedback()">📤 Simpan & Latih Ulang</button>
             <p id="feedbackStatus"></p>
+            <div id="profitDisplay" class="profit"></div>
         </div>
     </div>
 
     <script>
         let lastFeatures = null;
-        let lastPrediction = null;  // { ah_choice, ou_choice, btts, over_ht }
+        let lastPrediction = null;
 
         async function getRecommendation() {
             const fileInput = document.getElementById('zipFile');
@@ -87,7 +91,6 @@
                 document.getElementById('ahValue').innerText = data.ah;
                 document.getElementById('ouValue').innerText = data.ou;
 
-                // Reset warna dan status
                 ['homeBox','awayBox','overBox','underBox','bttsBox','overHtBox'].forEach(id => {
                     document.getElementById(id).classList.remove('green');
                 });
@@ -95,7 +98,6 @@
                     document.getElementById(id).innerText = '';
                 });
 
-                // Tandai prediksi
                 if (data.ah_choice === 'home') {
                     document.getElementById('homeBox').classList.add('green');
                 } else {
@@ -119,6 +121,7 @@
                     over_ht: data.over_ht
                 };
                 document.getElementById('status').innerText = "";
+                document.getElementById('profitDisplay').innerHTML = "";
             } catch (err) {
                 document.getElementById('error').innerText = "Gagal menghubungi server: " + err.message;
                 document.getElementById('status').innerText = "";
@@ -140,9 +143,8 @@
             try {
                 const resp = await fetch('/feedback', { method: 'POST', body: formData });
                 const data = await resp.json();
-                
-                // Tampilkan validasi
-                // AH
+
+                // Tampilkan validasi (✅/❌)
                 const predAH = lastPrediction.ah_choice;
                 const actualAH = data.actual_ah;
                 const ahOk = (predAH === actualAH) && actualAH !== 'push';
@@ -152,33 +154,30 @@
                 } else if (actualAH === 'away') {
                     document.getElementById('awayBox').style.borderColor = ahOk ? 'green' : 'red';
                 }
-                
-                // OU
+
                 const predOU = lastPrediction.ou_choice;
                 const actualOU = data.actual_ou;
                 const ouOk = (predOU === actualOU) && actualOU !== 'push';
                 document.getElementById('overStatus').innerText = (predOU === 'over') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
                 document.getElementById('underStatus').innerText = (predOU === 'under') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
-                if (actualOU === 'over') {
-                    document.getElementById('overBox').style.borderColor = ouOk ? 'green' : 'red';
-                } else if (actualOU === 'under') {
-                    document.getElementById('underBox').style.borderColor = ouOk ? 'green' : 'red';
-                }
-                
-                // BTTS
-                const predBTTS = lastPrediction.btts;
+
                 const actualBTTS = data.actual_btts;
-                const bttsOk = predBTTS === Boolean(actualBTTS);
+                const bttsOk = lastPrediction.btts === Boolean(actualBTTS);
                 document.getElementById('bttsStatus').innerText = bttsOk ? '✅' : '❌';
-                document.getElementById('bttsBox').style.borderColor = bttsOk ? 'green' : 'red';
-                
-                // Over HT
-                const predHT = lastPrediction.over_ht;
+
                 const actualHT = data.actual_over_ht;
-                const htOk = predHT === Boolean(actualHT);
+                const htOk = lastPrediction.over_ht === Boolean(actualHT);
                 document.getElementById('htStatus').innerText = htOk ? '✅' : '❌';
-                document.getElementById('overHtBox').style.borderColor = htOk ? 'green' : 'red';
-                
+
+                // Tampilkan profit
+                const profit = data.profit;
+                const totalColor = profit.total >= 0 ? 'positive' : 'negative';
+                document.getElementById('profitDisplay').innerHTML = `
+                    <strong>Profit:</strong><br>
+                    AH: ${profit.ah.toFixed(2)} | OU: ${profit.ou.toFixed(2)} | BTTS: ${profit.btts.toFixed(2)} | HT: ${profit.over_ht.toFixed(2)}<br>
+                    <span class="${totalColor}">Total: ${profit.total.toFixed(2)} unit</span>
+                `;
+
                 document.getElementById('feedbackStatus').innerText = data.message;
             } catch (err) {
                 document.getElementById('feedbackStatus').innerText = "Gagal mengirim feedback.";
