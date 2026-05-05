@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AI Taruhan Sepak Bola</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 800px; margin: auto; }
+        .upload-section { margin-bottom: 20px; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
+        .row { display: flex; justify-content: center; align-items: center; margin-bottom: 20px; }
+        .box { width: 40%; padding: 20px; text-align: center; border: 2px solid #aaa; border-radius: 10px; margin: 0 10px; font-weight: bold; }
+        .middle { width: 20%; text-align: center; font-size: 24px; }
+        .green { background-color: #4CAF50; color: white; }
+        button { padding: 10px 20px; margin: 5px; }
+        input[type="file"] { margin: 10px 0; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>⚽ Rekomendasi Taruhan</h1>
+
+    <div class="upload-section">
+        <h3>Upload File ZIP (berisi 9 file CSV)</h3>
+        <input type="file" id="zipFile" accept=".zip"><br>
+        <button onclick="getRecommendation()">🔍 Dapatkan Rekomendasi</button>
+        <p id="status"></p>
+        <p id="error" class="error"></p>
+    </div>
+
+    <div id="dashboard" style="display:none;">
+        <div class="row">
+            <div class="box" id="homeBox">HOME</div>
+            <div class="middle"><span id="ahValue"></span></div>
+            <div class="box" id="awayBox">AWAY</div>
+        </div>
+        <div class="row">
+            <div class="box" id="overBox">OVER</div>
+            <div class="middle"><span id="ouValue"></span></div>
+            <div class="box" id="underBox">UNDER</div>
+        </div>
+        <div class="row">
+            <div class="box" id="bttsBox">BTTS</div>
+            <div class="box" id="overHtBox">OVER HT</div>
+        </div>
+
+        <div class="upload-section">
+            <h3>Masukkan Hasil Aktual (setelah pertandingan)</h3>
+            <select id="actualAH">
+                <option value="home">Home Menang Handicap</option>
+                <option value="away">Away Menang Handicap</option>
+            </select>
+            <select id="actualOU">
+                <option value="over">Over</option>
+                <option value="under">Under</option>
+            </select>
+            <label>BTTS: <input type="checkbox" id="actualBTTS"></label>
+            <label>Over HT: <input type="checkbox" id="actualOverHT"></label><br>
+            <button onclick="sendFeedback()">📤 Simpan & Latih Ulang</button>
+            <p id="feedbackStatus"></p>
+        </div>
+    </div>
+
+    <script>
+        let lastFeatures = null;
+
+        async function getRecommendation() {
+            const fileInput = document.getElementById('zipFile');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert("Pilih file ZIP terlebih dahulu.");
+                return;
+            }
+            const formData = new FormData();
+            formData.append('zip_file', file);
+
+            document.getElementById('status').innerText = "Memproses...";
+            document.getElementById('error').innerText = "";
+            try {
+                const resp = await fetch('/predict', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.error) {
+                    document.getElementById('error').innerText = "Error: " + data.error;
+                    document.getElementById('status').innerText = "";
+                    return;
+                }
+
+                document.getElementById('dashboard').style.display = 'block';
+                document.getElementById('ahValue').innerText = data.ah;
+                document.getElementById('ouValue').innerText = data.ou;
+
+                ['homeBox','awayBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+                ['overBox','underBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+                ['bttsBox','overHtBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+
+                if (data.ah_choice === 'home') {
+                    document.getElementById('homeBox').classList.add('green');
+                } else {
+                    document.getElementById('awayBox').classList.add('green');
+                }
+
+                if (data.ou_choice === 'over') {
+                    document.getElementById('overBox').classList.add('green');
+                } else {
+                    document.getElementById('underBox').classList.add('green');
+                }
+
+                if (data.btts) document.getElementById('bttsBox').classList.add('green');
+                if (data.over_ht) document.getElementById('overHtBox').classList.add('green');
+
+                lastFeatures = data.features;
+                document.getElementById('status').innerText = "";
+            } catch (err) {
+                document.getElementById('error').innerText = "Gagal menghubungi server: " + err.message;
+                document.getElementById('status').innerText = "";
+            }
+        }
+
+        async function sendFeedback() {
+            if (!lastFeatures) {
+                alert("Dapatkan rekomendasi dulu.");
+                return;
+            }
+            const formData = new FormData();
+            formData.append('ah_winner', document.getElementById('actualAH').value);
+            formData.append('ou_result', document.getElementById('actualOU').value);
+            formData.append('btts', document.getElementById('actualBTTS').checked ? 1 : 0);
+            formData.append('over_ht', document.getElementById('actualOverHT').checked ? 1 : 0);
+            formData.append('features_json', JSON.stringify(lastFeatures));
+
+            try {
+                const resp = await fetch('/feedback', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.error) {
+                    document.getElementById('feedbackStatus').innerText = "Error: " + data.error;
+                } else {
+                    document.getElementById('feedbackStatus').innerText = data.message + (data.accuracy ? ' Akurasi: '+data.accuracy : '');
+                }
+            } catch (err) {
+                document.getElementById('feedbackStatus').innerText = "Gagal mengirim feedback.";
+            }
+        }
+    </script>
+</body>
+              </html>
