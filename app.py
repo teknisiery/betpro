@@ -340,20 +340,30 @@ async def feedback(
         actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
         actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
 
-        features['ah_winner'] = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
-        features['ou_result'] = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
-        features['btts'] = actual_btts
-        features['over_ht'] = actual_over_ht
+        # Simpan target – pastikan None hanya untuk push
+        target_ah = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
+        target_ou = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
+        target_btts = actual_btts
+        target_ht = actual_over_ht
 
+        # Hanya simpan fitur numerik + target
+        clean_features = {k: v for k, v in features.items() if not k.startswith('pred_')}
+        clean_features['ah_winner'] = target_ah
+        clean_features['ou_result'] = target_ou
+        clean_features['btts'] = target_btts
+        clean_features['over_ht'] = target_ht
+
+        # Baca dataset lama atau buat baru
         if os.path.exists(DATA_PATH):
             df = pd.read_csv(DATA_PATH)
         else:
             df = pd.DataFrame()
 
-        new_df = pd.DataFrame([features])
-        df = pd.concat([df, new_df], ignore_index=True)
+        new_row = pd.DataFrame([clean_features])
+        df = pd.concat([df, new_row], ignore_index=True)
         df.to_csv(DATA_PATH, index=False)
 
+        # Hitung profit
         ah_home_odds = float(features.get('ah_home_odds', 1.0))
         ah_away_odds = float(features.get('ah_away_odds', 1.0))
         over_odds = float(features.get('over_odds', 1.0))
@@ -377,6 +387,7 @@ async def feedback(
 
         total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
+        # Simpan riwayat profit
         home_team = features.get('home_team', 'Home')
         away_team = features.get('away_team', 'Away')
         match_date = features.get('match_date', 'unknown')
@@ -404,9 +415,12 @@ async def feedback(
 
         total_accumulated = float(history_df['total_profit'].sum())
 
+        # Training model
         global model, feature_columns
         target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
         clean_df = df.dropna(subset=target_columns)
+        debug_info = f"Dataset shape: {df.shape}, after dropna: {clean_df.shape}, target values: ah={target_ah}, ou={target_ou}, btts={target_btts}, ht={target_ht}"
+
         if len(clean_df) >= 10:
             feature_columns = [c for c in clean_df.columns if c not in target_columns]
             X = clean_df[feature_columns]
@@ -434,7 +448,7 @@ async def feedback(
             },
             "total_accumulated": total_accumulated,
             "history": history_df[['home', 'away', 'score', 'total_profit']].tail(5).to_dict('records'),
-            "message": training_msg
+            "message": training_msg + " | Debug: " + debug_info
         }
         response_data = convert_numpy(response_data)
         return JSONResponse(response_data)
