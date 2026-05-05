@@ -91,7 +91,6 @@
                 document.getElementById('ahValue').innerText = data.ah;
                 document.getElementById('ouValue').innerText = data.ou;
 
-                // Reset warna dan status
                 ['homeBox','awayBox','overBox','underBox','bttsBox','overHtBox'].forEach(id => {
                     document.getElementById(id).classList.remove('green');
                     document.getElementById(id).style.borderColor = '#aaa';
@@ -100,7 +99,6 @@
                     document.getElementById(id).innerText = '';
                 });
 
-                // Tandai prediksi (hijau)
                 if (data.ah_choice === 'home') {
                     document.getElementById('homeBox').classList.add('green');
                 } else {
@@ -145,13 +143,17 @@
             try {
                 const resp = await fetch('/feedback', { method: 'POST', body: formData });
                 const data = await resp.json();
+                if (data.error) {
+                    document.getElementById('feedbackStatus').innerText = "Error: " + data.error;
+                    return;
+                }
 
                 // === TAMPILKAN STATUS VALIDASI DI KOTAK ===
                 const predAH = lastPrediction.ah_choice;
                 const actualAH = data.actual_ah;
                 const ahOk = (predAH === actualAH) && actualAH !== 'push';
                 document.getElementById('ahStatus').innerText = actualAH === 'push' ? '↔️' : (ahOk ? '✅' : '❌');
-                document.getElementById('awayStatus').innerText = ''; // hanya satu yang ditampilkan
+                document.getElementById('awayStatus').innerText = '';
                 if (actualAH === 'home') {
                     document.getElementById('homeBox').style.borderColor = ahOk ? 'green' : 'red';
                 } else if (actualAH === 'away') {
@@ -204,4 +206,4 @@
         }
     </script>
 </body>
-                </html>
+                                    </html>
