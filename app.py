@@ -26,7 +26,6 @@ feature_columns = []
 
 
 def convert_numpy(obj):
-    """Convert numpy types to native Python types recursively."""
     if isinstance(obj, dict):
         return {k: convert_numpy(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -248,10 +247,18 @@ async def predict(zip_file: UploadFile = File(...)):
 
         global model, feature_columns
         if model is None or len(feature_columns) == 0:
-            if features['handicap'] < 0:
-                ah_choice = 'away' if features['elo_diff'] < -10 else 'home'
-            else:
-                ah_choice = 'home' if features['elo_diff'] > 10 else 'away'
+            # ========== RULE‑BASED BARU ==========
+            handicap = features['handicap']
+            elo_diff = features['elo_diff']
+            if handicap < 0:
+                # Away difavoritkan
+                ah_choice = 'away' if elo_diff < 0 else 'home'
+            elif handicap > 0:
+                # Home difavoritkan
+                ah_choice = 'home' if elo_diff > -10 else 'away'
+            else:  # handicap == 0
+                ah_choice = 'home' if elo_diff > 0 else 'away'
+            # =====================================
 
             avg_goals = features['home_goals_l10'] + features['away_goals_l10']
             ou_choice = 'over' if avg_goals > features['ou_line'] else 'under'
@@ -350,7 +357,6 @@ async def feedback(
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATA_PATH, index=False)
 
-    # Hitung profit dalam native Python float
     ah_home_odds = float(features.get('ah_home_odds', 1.0))
     ah_away_odds = float(features.get('ah_away_odds', 1.0))
     over_odds = float(features.get('over_odds', 1.0))
@@ -374,7 +380,6 @@ async def feedback(
 
     total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
-    # Simpan riwayat profit
     home_team = features.get('home_team', 'Home')
     away_team = features.get('away_team', 'Away')
     match_date = features.get('match_date', 'unknown')
@@ -402,7 +407,6 @@ async def feedback(
 
     total_accumulated = float(history_df['total_profit'].sum())
 
-    # Training model
     global model, feature_columns
     target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
     clean_df = df.dropna(subset=target_columns)
@@ -419,7 +423,6 @@ async def feedback(
     else:
         training_msg = f"Data tersimpan ({len(clean_df)} sampel lengkap), butuh minimal 10 untuk training."
 
-    # Pastikan respons bersih dari numpy
     response_data = {
         "actual_ah": actual_ah,
         "actual_ou": actual_ou,
