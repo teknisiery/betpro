@@ -345,7 +345,6 @@ async def feedback(
         features['btts'] = actual_btts
         features['over_ht'] = actual_over_ht
 
-        # Simpan dataset
         if os.path.exists(DATA_PATH):
             df = pd.read_csv(DATA_PATH)
         else:
@@ -355,7 +354,6 @@ async def feedback(
         df = pd.concat([df, new_df], ignore_index=True)
         df.to_csv(DATA_PATH, index=False)
 
-        # Hitung profit
         ah_home_odds = float(features.get('ah_home_odds', 1.0))
         ah_away_odds = float(features.get('ah_away_odds', 1.0))
         over_odds = float(features.get('over_odds', 1.0))
@@ -379,7 +377,6 @@ async def feedback(
 
         total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
-        # Simpan riwayat profit
         home_team = features.get('home_team', 'Home')
         away_team = features.get('away_team', 'Away')
         match_date = features.get('match_date', 'unknown')
@@ -407,7 +404,6 @@ async def feedback(
 
         total_accumulated = float(history_df['total_profit'].sum())
 
-        # Training model
         global model, feature_columns
         target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
         clean_df = df.dropna(subset=target_columns)
