@@ -36,9 +36,7 @@ def safe_read_csv(file_path, required_columns=None, **kwargs):
 
 
 def parse_ah_line(ah_str):
-    # Bersihkan spasi berlebih dan ganti koma jika perlu
     ah_str = ah_str.strip()
-    # Coba split dengan ' / ' dulu, kalau gagal pakai '/' saja
     if ' / ' in ah_str:
         parts = ah_str.split(' / ')
     else:
@@ -63,10 +61,8 @@ def parse_ou_line(ou_str):
     if len(parts) < 3:
         raise ValueError(f"Format O/U tidak valid: {ou_str}")
 
-    # Over odds: kata terakhir di parts[0]
     over_odds = float(parts[0].strip().split()[-1])
     line = float(parts[1].strip())
-    # Under odds: kata pertama di parts[2]
     under_odds = float(parts[2].strip().split()[0])
     return over_odds, line, under_odds
 
@@ -74,10 +70,10 @@ def parse_ou_line(ou_str):
 def extract_features_from_files(temp_dir):
     features = {}
 
-    # Baca 01_info.csv dengan toleransi tinggi
+    # Baca 01_info.csv dengan header=None
     info = safe_read_csv(os.path.join(temp_dir, "01_info.csv"), header=None)
-    # Strip semua nilai
-    info = info.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    # Strip semua string di seluruh DataFrame (gunakan .map, bukan .applymap)
+    info = info.map(lambda x: x.strip() if isinstance(x, str) else x)
 
     # Cari baris yang mengandung 'Pre-game AH' (case insensitive)
     mask_pre_ah = info[0].str.strip().str.lower() == 'pre-game ah'
