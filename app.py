@@ -81,6 +81,17 @@ def parse_ou_line(ou_str):
     return over_odds, line, under_odds
 
 
+def parse_handicap_display(hdcp_str):
+    """Mengubah string handicap seperti '-0.5', '0/0.5', '1/1.5' menjadi float."""
+    hdcp_str = hdcp_str.strip()
+    if '/' in hdcp_str:
+        # Contoh: '0/0.5' -> 0.25, '0.5/1' -> 0.75
+        parts = hdcp_str.split('/')
+        return (float(parts[0]) + float(parts[1])) / 2
+    else:
+        return float(hdcp_str)
+
+
 def extract_features_from_files(temp_dir):
     features = {}
 
@@ -106,20 +117,23 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
-    # Perbaikan penentuan handicap: ikuti display yang muncul di dashboard
-    # Jika handicap_text tidak memiliki tanda, kita tentukan berdasarkan odds
-    handicap_val = float(handicap_text.replace('-', '').replace('+', '').split('/')[0])
-    if handicap_text.startswith('-'):
-        handicap = -handicap_val
-    elif handicap_text.startswith('+'):
-        handicap = handicap_val
-    else:
-        # Tidak ada tanda -> gunakan logika: home_odds > away_odds = home underdog (voor +)
-        if live_home_ah > live_away_ah:
-            handicap = handicap_val   # home underdog, dapat voor
-        else:
-            handicap = -handicap_val  # home favorit, beri voor
+    # Simpan handicap display string untuk digunakan saat feedback
+    features['handicap_display_str'] = live_handicap_text
+    features['ou_line_display_str'] = str(live_ou_line)
 
+    # Handicap numerik (digunakan oleh rule-based) tetap dihitung
+    handicap = parse_handicap_display(live_handicap_text)
+    # Koreksi tanda: jika tidak ada tanda, tentukan berdasarkan odds
+    if not live_handicap_text.startswith('-') and not live_handicap_text.startswith('+'):
+        if live_home_ah > live_away_ah:
+            handicap = abs(handicap)   # home underdog, voor positif
+        else:
+            handicap = -abs(handicap)  # home favorit, voor negatif
+    else:
+        if live_handicap_text.startswith('-'):
+            handicap = -abs(handicap)
+        else:
+            handicap = abs(handicap)
     features['handicap'] = handicap
 
     features['delta_ah_home'] = live_home_ah - pre_home_ah
@@ -273,8 +287,9 @@ async def predict(zip_file: UploadFile = File(...)):
             btts = bool(preds[2])
             over_ht = bool(preds[3])
 
-        handicap_display = features.pop('handicap_display', '0/0.5')
-        ou_line_display = features.pop('ou_line_display', '3')
+        # Simpan display string untuk dikirim ke frontend
+        handicap_display = features.pop('handicap_display', '0')
+        ou_line_display = features.pop('ou_line_display', '2.5')
 
         features['pred_ah'] = ah_choice
         features['pred_ou'] = ou_choice
@@ -317,13 +332,28 @@ async def feedback(
         import json
         features = json.loads(features_json)
 
+        # Gunakan handicap dari string display (dikirim sebagai 'handicap_display_str')
+        hdcp_str = features.get('handicap_display_str', '0')
+        handicap = parse_handicap_display(hdcp_str)
+        # Tentukan tanda berdasarkan string asli
+        if hdcp_str.startswith('-'):
+            handicap = -abs(handicap)
+        elif hdcp_str.startswith('+'):
+            handicap = abs(handicap)
+        else:
+            # Jika tidak bertanda, gunakan odds untuk menentukan
+            if features.get('ah_home_odds', 1.0) > features.get('ah_away_odds', 1.0):
+                handicap = abs(handicap)
+            else:
+                handicap = -abs(handicap)
+
+        ou_line_str = features.get('ou_line_display_str', '2.5')
+        ou_line = float(ou_line_str)
+
         pred_ah = features.get('pred_ah', 'home')
         pred_ou = features.get('pred_ou', 'over')
         pred_btts = features.get('pred_btts', False)
         pred_over_ht = features.get('pred_over_ht', False)
-
-        handicap = features.get('handicap', 0)
-        ou_line = features.get('ou_line', 2.5)
 
         effective_home = ft_home + handicap
         if effective_home > ft_away:
@@ -347,16 +377,17 @@ async def feedback(
         # Simpan target
         target_ah = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
         target_ou = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
-        target_btts = actual_btts
-        target_ht = actual_over_ht
 
-        # Bersihkan fitur yang tidak perlu
+        # Bersihkan fitur yang tidak perlu dari dataset
         clean_features = {k: v for k, v in features.items()
-                         if not k.startswith('pred_') and k not in ['handicap_display', 'ou_line_display']}
+                         if not k.startswith('pred_')
+                         and k not in ['handicap_display_str', 'ou_line_display_str',
+                                       'handicap_display', 'ou_line_display']}
+        clean_features['handicap'] = handicap  # gunakan handicap yang sudah dikoreksi
         clean_features['ah_winner'] = target_ah
         clean_features['ou_result'] = target_ou
-        clean_features['btts'] = target_btts
-        clean_features['over_ht'] = target_ht
+        clean_features['btts'] = actual_btts
+        clean_features['over_ht'] = actual_over_ht
 
         # Simpan dataset
         if os.path.exists(DATA_PATH):
@@ -368,7 +399,7 @@ async def feedback(
         df = pd.concat([df, new_row], ignore_index=True)
         df.to_csv(DATA_PATH, index=False)
 
-        # Hitung profit
+        # Profit
         ah_home_odds = float(features.get('ah_home_odds', 1.0))
         ah_away_odds = float(features.get('ah_away_odds', 1.0))
         over_odds = float(features.get('over_odds', 1.0))
@@ -420,13 +451,13 @@ async def feedback(
 
         total_accumulated = float(history_df['total_profit'].sum())
 
-        # Training model
+        # Training
         global model, feature_columns
         target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
         clean_df = df.dropna(subset=target_columns)
-        debug_info = (f"handicap={handicap}, effective_home={effective_home:.2f}, ft_away={ft_away}, "
-                      f"actual_ah={actual_ah}, target_ah={target_ah}, dataset_shape={df.shape}, "
-                      f"clean_shape={clean_df.shape}")
+        debug_info = (f"hdcp_str={hdcp_str}, handicap={handicap}, "
+                      f"effective_home={effective_home:.2f}, actual_ah={actual_ah}, "
+                      f"target_ah={target_ah}, clean_samples={len(clean_df)}")
 
         if len(clean_df) >= 10:
             feature_columns = [c for c in clean_df.columns if c not in target_columns]
