@@ -91,13 +91,16 @@
                 document.getElementById('ahValue').innerText = data.ah;
                 document.getElementById('ouValue').innerText = data.ou;
 
+                // Reset warna dan status
                 ['homeBox','awayBox','overBox','underBox','bttsBox','overHtBox'].forEach(id => {
                     document.getElementById(id).classList.remove('green');
+                    document.getElementById(id).style.borderColor = '#aaa';
                 });
                 ['ahStatus','awayStatus','overStatus','underStatus','bttsStatus','htStatus'].forEach(id => {
                     document.getElementById(id).innerText = '';
                 });
 
+                // Tandai prediksi (hijau)
                 if (data.ah_choice === 'home') {
                     document.getElementById('homeBox').classList.add('green');
                 } else {
@@ -123,6 +126,7 @@
                 };
                 document.getElementById('status').innerText = "";
                 document.getElementById('profitDisplay').innerHTML = "";
+                document.getElementById('historyDisplay').innerHTML = "";
             } catch (err) {
                 document.getElementById('error').innerText = "Gagal menghubungi server: " + err.message;
                 document.getElementById('status').innerText = "";
@@ -142,21 +146,38 @@
                 const resp = await fetch('/feedback', { method: 'POST', body: formData });
                 const data = await resp.json();
 
-                // Validasi status
+                // === TAMPILKAN STATUS VALIDASI DI KOTAK ===
                 const predAH = lastPrediction.ah_choice;
                 const actualAH = data.actual_ah;
                 const ahOk = (predAH === actualAH) && actualAH !== 'push';
                 document.getElementById('ahStatus').innerText = actualAH === 'push' ? '↔️' : (ahOk ? '✅' : '❌');
+                document.getElementById('awayStatus').innerText = ''; // hanya satu yang ditampilkan
+                if (actualAH === 'home') {
+                    document.getElementById('homeBox').style.borderColor = ahOk ? 'green' : 'red';
+                } else if (actualAH === 'away') {
+                    document.getElementById('awayBox').style.borderColor = ahOk ? 'green' : 'red';
+                }
 
                 const predOU = lastPrediction.ou_choice;
                 const actualOU = data.actual_ou;
                 const ouOk = (predOU === actualOU) && actualOU !== 'push';
                 document.getElementById('overStatus').innerText = (predOU === 'over') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
                 document.getElementById('underStatus').innerText = (predOU === 'under') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
+                if (actualOU === 'over') {
+                    document.getElementById('overBox').style.borderColor = ouOk ? 'green' : 'red';
+                } else if (actualOU === 'under') {
+                    document.getElementById('underBox').style.borderColor = ouOk ? 'green' : 'red';
+                }
 
-                document.getElementById('bttsStatus').innerText = lastPrediction.btts === Boolean(data.actual_btts) ? '✅' : '❌';
-                document.getElementById('htStatus').innerText = lastPrediction.over_ht === Boolean(data.actual_over_ht) ? '✅' : '❌';
+                const bttsOk = lastPrediction.btts === Boolean(data.actual_btts);
+                document.getElementById('bttsStatus').innerText = bttsOk ? '✅' : '❌';
+                document.getElementById('bttsBox').style.borderColor = bttsOk ? 'green' : 'red';
 
+                const htOk = lastPrediction.over_ht === Boolean(data.actual_over_ht);
+                document.getElementById('htStatus').innerText = htOk ? '✅' : '❌';
+                document.getElementById('overHtBox').style.borderColor = htOk ? 'green' : 'red';
+
+                // === TAMPILKAN PROFIT ===
                 const profit = data.profit;
                 const totalColor = profit.total >= 0 ? 'positive' : 'negative';
                 document.getElementById('profitDisplay').innerHTML = `
@@ -166,7 +187,7 @@
                     <strong>Akumulasi Total: ${data.total_accumulated.toFixed(2)} unit</strong>
                 `;
 
-                // Riwayat
+                // === TAMPILKAN RIWAYAT ===
                 if (data.history && data.history.length > 0) {
                     let html = '<h4>Riwayat Terakhir:</h4><ul class="history-list">';
                     data.history.forEach(item => {
@@ -183,4 +204,4 @@
         }
     </script>
 </body>
-    </html>
+                </html>
