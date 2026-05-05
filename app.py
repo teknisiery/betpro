@@ -8,6 +8,7 @@ import os
 import shutil
 import re
 import zipfile
+from datetime import datetime
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.multioutput import MultiOutputClassifier
 from sklearn.model_selection import train_test_split
@@ -18,6 +19,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 MODEL_PATH = "model.pkl"
 DATA_PATH = "dataset.csv"
+PROFIT_HISTORY_PATH = "profit_history.csv"
 
 model = None
 feature_columns = []
@@ -104,21 +106,15 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
-    # ---------- HANDICAP DENGAN ATURAN ODDS ----------
-    # Jika home_odds > away_odds → away lebih difavoritkan → handicap untuk home adalah positif
-    # Nilai handicap diambil dari text, misal "0/0.5" → 0.25
     handicap_val = float(handicap_text.replace('-', '').replace('+', '').split('/')[0])
     if handicap_text.startswith('-'):
         handicap = -handicap_val
     elif handicap_text.startswith('+'):
         handicap = handicap_val
     else:
-        # Tidak ada tanda, tentukan arah berdasarkan odds
         if live_home_ah > live_away_ah:
-            # away lebih diunggulkan → home dapat voor (+)
             handicap = handicap_val
         else:
-            # home lebih diunggulkan → home beri voor (-)
             handicap = -handicap_val
     features['handicap'] = handicap
 
@@ -126,6 +122,14 @@ def extract_features_from_files(temp_dir):
     features['delta_ah_away'] = live_away_ah - pre_away_ah
     features['delta_ou_over'] = live_over - pre_over
     features['delta_ou_under'] = live_under - pre_under
+
+    # --- tim & tanggal ---
+    home_team = str(info[info[0] == 'Home'][1].values[0])
+    away_team = str(info[info[0] == 'Away'][1].values[0])
+    match_date = str(info[info[0] == 'Tanggal'][1].values[0])
+    features['home_team'] = home_team
+    features['away_team'] = away_team
+    features['match_date'] = match_date
 
     stats = safe_read_csv(os.path.join(temp_dir, "05_recent_stats.csv"),
                           required_columns=['Metric', 'Home_Last10', 'Away_Last10'])
@@ -257,11 +261,15 @@ async def predict(zip_file: UploadFile = File(...)):
         handicap_display = features.pop('handicap_display', '0/0.5')
         ou_line_display = features.pop('ou_line_display', '3')
 
-        # Sertakan prediksi ke dalam fitur yang akan dikirim ke frontend
         features['pred_ah'] = ah_choice
         features['pred_ou'] = ou_choice
         features['pred_btts'] = btts
         features['pred_over_ht'] = over_ht
+
+        # simpan nama tim & tanggal untuk dikembalikan ke frontend
+        home_team = features.get('home_team', 'Home')
+        away_team = features.get('away_team', 'Away')
+        match_date = features.get('match_date', '')
 
         shutil.rmtree(temp_dir)
 
@@ -272,6 +280,9 @@ async def predict(zip_file: UploadFile = File(...)):
             "ou_choice": ou_choice,
             "btts": btts,
             "over_ht": over_ht,
+            "home_team": home_team,
+            "away_team": away_team,
+            "match_date": match_date,
             "features": features
         })
     except Exception as e:
@@ -291,13 +302,11 @@ async def feedback(
     import json
     features = json.loads(features_json)
 
-    # Ambil prediksi yang dikirim dari frontend
     pred_ah = features.get('pred_ah', 'home')
     pred_ou = features.get('pred_ou', 'over')
     pred_btts = features.get('pred_btts', False)
     pred_over_ht = features.get('pred_over_ht', False)
 
-    # Hitung hasil aktual
     handicap = features.get('handicap', 0)
     ou_line = features.get('ou_line', 2.5)
 
@@ -320,12 +329,12 @@ async def feedback(
     actual_btts = 1 if (ft_home > 0 and ft_away > 0) else 0
     actual_over_ht = 1 if (ht_home + ht_away) > 0.5 else 0
 
-    # Simpan target
     features['ah_winner'] = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
     features['ou_result'] = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
     features['btts'] = actual_btts
     features['over_ht'] = actual_over_ht
 
+    # Simpan dataset
     if os.path.exists(DATA_PATH):
         df = pd.read_csv(DATA_PATH)
     else:
@@ -335,7 +344,7 @@ async def feedback(
     df = pd.concat([df, new_df], ignore_index=True)
     df.to_csv(DATA_PATH, index=False)
 
-    # Hitung profit berdasarkan prediksi dan odds
+    # Hitung profit
     ah_home_odds = features.get('ah_home_odds', 1.0)
     ah_away_odds = features.get('ah_away_odds', 1.0)
     over_odds = features.get('over_odds', 1.0)
@@ -346,39 +355,47 @@ async def feedback(
     profit_btts = 0
     profit_ht = 0
 
-    # AH
     if actual_ah != 'push':
-        if pred_ah == 'home':
-            odds = ah_home_odds
-        else:
-            odds = ah_away_odds
-        if pred_ah == actual_ah:
-            profit_ah = (odds - 1) * 100
-        else:
-            profit_ah = -100
-    else:
-        profit_ah = 0
+        odds = ah_home_odds if pred_ah == 'home' else ah_away_odds
+        profit_ah = (odds - 1) * 100 if pred_ah == actual_ah else -100
 
-    # OU
     if actual_ou != 'push':
-        if pred_ou == 'over':
-            odds = over_odds
-        else:
-            odds = under_odds
-        if pred_ou == actual_ou:
-            profit_ou = (odds - 1) * 100
-        else:
-            profit_ou = -100
-    else:
-        profit_ou = 0
+        odds = over_odds if pred_ou == 'over' else under_odds
+        profit_ou = (odds - 1) * 100 if pred_ou == actual_ou else -100
 
-    # BTTS
     profit_btts = 50 if pred_btts == bool(actual_btts) else -50
-
-    # Over HT
     profit_ht = 50 if pred_over_ht == bool(actual_over_ht) else -50
 
     total_profit = profit_ah + profit_ou + profit_btts + profit_ht
+
+    # --- Simpan riwayat profit ---
+    home_team = features.get('home_team', 'Home')
+    away_team = features.get('away_team', 'Away')
+    match_date = features.get('match_date', 'unknown')
+
+    record = {
+        'date': match_date,
+        'home': home_team,
+        'away': away_team,
+        'score': f"{ft_home}-{ft_away}",
+        'profit_ah': profit_ah,
+        'profit_ou': profit_ou,
+        'profit_btts': profit_btts,
+        'profit_ht': profit_ht,
+        'total_profit': total_profit,
+        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    if os.path.exists(PROFIT_HISTORY_PATH):
+        history_df = pd.read_csv(PROFIT_HISTORY_PATH)
+    else:
+        history_df = pd.DataFrame()
+
+    history_df = pd.concat([history_df, pd.DataFrame([record])], ignore_index=True)
+    history_df.to_csv(PROFIT_HISTORY_PATH, index=False)
+
+    # Total akumulasi
+    total_accumulated = history_df['total_profit'].sum()
 
     # Training model
     global model, feature_columns
@@ -409,5 +426,7 @@ async def feedback(
             "over_ht": profit_ht,
             "total": total_profit
         },
+        "total_accumulated": total_accumulated,
+        "history": history_df[['home', 'away', 'score', 'total_profit']].tail(5).to_dict('records'),
         "message": training_msg
     })
