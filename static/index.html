@@ -7,12 +7,15 @@
         body { font-family: Arial; padding: 20px; max-width: 800px; margin: auto; }
         .upload-section { margin-bottom: 20px; border: 1px solid #ccc; padding: 15px; border-radius: 10px; }
         .row { display: flex; justify-content: center; align-items: center; margin-bottom: 20px; }
-        .box { width: 40%; padding: 20px; text-align: center; border: 2px solid #aaa; border-radius: 10px; margin: 0 10px; font-weight: bold; }
+        .box { width: 40%; padding: 20px; text-align: center; border: 2px solid #aaa; border-radius: 10px; margin: 0 10px; font-weight: bold; position: relative; }
         .middle { width: 20%; text-align: center; font-size: 24px; }
         .green { background-color: #4CAF50; color: white; }
         button { padding: 10px 20px; margin: 5px; }
         input[type="file"] { margin: 10px 0; }
         .error { color: red; }
+        .status { font-size: 24px; position: absolute; top: 5px; right: 10px; }
+        .score-inputs { display: flex; justify-content: center; gap: 10px; margin: 10px 0; }
+        .score-inputs input { width: 60px; padding: 5px; }
     </style>
 </head>
 <body>
@@ -28,32 +31,28 @@
 
     <div id="dashboard" style="display:none;">
         <div class="row">
-            <div class="box" id="homeBox">HOME</div>
+            <div class="box" id="homeBox">HOME<span class="status" id="ahStatus"></span></div>
             <div class="middle"><span id="ahValue"></span></div>
-            <div class="box" id="awayBox">AWAY</div>
+            <div class="box" id="awayBox">AWAY<span class="status" id="awayStatus"></span></div>
         </div>
         <div class="row">
-            <div class="box" id="overBox">OVER</div>
+            <div class="box" id="overBox">OVER<span class="status" id="overStatus"></span></div>
             <div class="middle"><span id="ouValue"></span></div>
-            <div class="box" id="underBox">UNDER</div>
+            <div class="box" id="underBox">UNDER<span class="status" id="underStatus"></span></div>
         </div>
         <div class="row">
-            <div class="box" id="bttsBox">BTTS</div>
-            <div class="box" id="overHtBox">OVER HT</div>
+            <div class="box" id="bttsBox">BTTS<span class="status" id="bttsStatus"></span></div>
+            <div class="box" id="overHtBox">OVER HT<span class="status" id="htStatus"></span></div>
         </div>
 
         <div class="upload-section">
-            <h3>Masukkan Hasil Aktual (setelah pertandingan)</h3>
-            <select id="actualAH">
-                <option value="home">Home Menang Handicap</option>
-                <option value="away">Away Menang Handicap</option>
-            </select>
-            <select id="actualOU">
-                <option value="over">Over</option>
-                <option value="under">Under</option>
-            </select>
-            <label>BTTS: <input type="checkbox" id="actualBTTS"></label>
-            <label>Over HT: <input type="checkbox" id="actualOverHT"></label><br>
+            <h3>Masukkan Hasil Aktual (Skor)</h3>
+            <div class="score-inputs">
+                <label>HT Home: <input type="number" id="htHome" min="0" value="0"></label>
+                <label>HT Away: <input type="number" id="htAway" min="0" value="0"></label>
+                <label>FT Home: <input type="number" id="ftHome" min="0" value="0"></label>
+                <label>FT Away: <input type="number" id="ftAway" min="0" value="0"></label>
+            </div>
             <button onclick="sendFeedback()">📤 Simpan & Latih Ulang</button>
             <p id="feedbackStatus"></p>
         </div>
@@ -61,6 +60,7 @@
 
     <script>
         let lastFeatures = null;
+        let lastPrediction = null;  // { ah_choice, ou_choice, btts, over_ht }
 
         async function getRecommendation() {
             const fileInput = document.getElementById('zipFile');
@@ -87,10 +87,15 @@
                 document.getElementById('ahValue').innerText = data.ah;
                 document.getElementById('ouValue').innerText = data.ou;
 
-                ['homeBox','awayBox'].forEach(id => document.getElementById(id).classList.remove('green'));
-                ['overBox','underBox'].forEach(id => document.getElementById(id).classList.remove('green'));
-                ['bttsBox','overHtBox'].forEach(id => document.getElementById(id).classList.remove('green'));
+                // Reset warna dan status
+                ['homeBox','awayBox','overBox','underBox','bttsBox','overHtBox'].forEach(id => {
+                    document.getElementById(id).classList.remove('green');
+                });
+                ['ahStatus','awayStatus','overStatus','underStatus','bttsStatus','htStatus'].forEach(id => {
+                    document.getElementById(id).innerText = '';
+                });
 
+                // Tandai prediksi
                 if (data.ah_choice === 'home') {
                     document.getElementById('homeBox').classList.add('green');
                 } else {
@@ -107,6 +112,12 @@
                 if (data.over_ht) document.getElementById('overHtBox').classList.add('green');
 
                 lastFeatures = data.features;
+                lastPrediction = {
+                    ah_choice: data.ah_choice,
+                    ou_choice: data.ou_choice,
+                    btts: data.btts,
+                    over_ht: data.over_ht
+                };
                 document.getElementById('status').innerText = "";
             } catch (err) {
                 document.getElementById('error').innerText = "Gagal menghubungi server: " + err.message;
@@ -115,25 +126,60 @@
         }
 
         async function sendFeedback() {
-            if (!lastFeatures) {
+            if (!lastFeatures || !lastPrediction) {
                 alert("Dapatkan rekomendasi dulu.");
                 return;
             }
             const formData = new FormData();
-            formData.append('ah_winner', document.getElementById('actualAH').value);
-            formData.append('ou_result', document.getElementById('actualOU').value);
-            formData.append('btts', document.getElementById('actualBTTS').checked ? 1 : 0);
-            formData.append('over_ht', document.getElementById('actualOverHT').checked ? 1 : 0);
+            formData.append('ht_home', document.getElementById('htHome').value);
+            formData.append('ht_away', document.getElementById('htAway').value);
+            formData.append('ft_home', document.getElementById('ftHome').value);
+            formData.append('ft_away', document.getElementById('ftAway').value);
             formData.append('features_json', JSON.stringify(lastFeatures));
 
             try {
                 const resp = await fetch('/feedback', { method: 'POST', body: formData });
                 const data = await resp.json();
-                if (data.error) {
-                    document.getElementById('feedbackStatus').innerText = "Error: " + data.error;
-                } else {
-                    document.getElementById('feedbackStatus').innerText = data.message + (data.accuracy ? ' Akurasi: '+data.accuracy : '');
+                
+                // Tampilkan validasi
+                // AH
+                const predAH = lastPrediction.ah_choice;
+                const actualAH = data.actual_ah;
+                const ahOk = (predAH === actualAH) && actualAH !== 'push';
+                document.getElementById('ahStatus').innerText = actualAH === 'push' ? '↔️' : (ahOk ? '✅' : '❌');
+                if (actualAH === 'home') {
+                    document.getElementById('homeBox').style.borderColor = ahOk ? 'green' : 'red';
+                } else if (actualAH === 'away') {
+                    document.getElementById('awayBox').style.borderColor = ahOk ? 'green' : 'red';
                 }
+                
+                // OU
+                const predOU = lastPrediction.ou_choice;
+                const actualOU = data.actual_ou;
+                const ouOk = (predOU === actualOU) && actualOU !== 'push';
+                document.getElementById('overStatus').innerText = (predOU === 'over') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
+                document.getElementById('underStatus').innerText = (predOU === 'under') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
+                if (actualOU === 'over') {
+                    document.getElementById('overBox').style.borderColor = ouOk ? 'green' : 'red';
+                } else if (actualOU === 'under') {
+                    document.getElementById('underBox').style.borderColor = ouOk ? 'green' : 'red';
+                }
+                
+                // BTTS
+                const predBTTS = lastPrediction.btts;
+                const actualBTTS = data.actual_btts;
+                const bttsOk = predBTTS === Boolean(actualBTTS);
+                document.getElementById('bttsStatus').innerText = bttsOk ? '✅' : '❌';
+                document.getElementById('bttsBox').style.borderColor = bttsOk ? 'green' : 'red';
+                
+                // Over HT
+                const predHT = lastPrediction.over_ht;
+                const actualHT = data.actual_over_ht;
+                const htOk = predHT === Boolean(actualHT);
+                document.getElementById('htStatus').innerText = htOk ? '✅' : '❌';
+                document.getElementById('overHtBox').style.borderColor = htOk ? 'green' : 'red';
+                
+                document.getElementById('feedbackStatus').innerText = data.message;
             } catch (err) {
                 document.getElementById('feedbackStatus').innerText = "Gagal mengirim feedback.";
             }
