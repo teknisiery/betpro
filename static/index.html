@@ -19,6 +19,8 @@
         .profit { font-size: 18px; margin-top: 10px; }
         .positive { color: green; }
         .negative { color: red; }
+        .history-list { list-style: none; padding: 0; }
+        .history-item { border-bottom: 1px solid #eee; padding: 5px 0; }
     </style>
 </head>
 <body>
@@ -59,6 +61,7 @@
             <button onclick="sendFeedback()">📤 Simpan & Latih Ulang</button>
             <p id="feedbackStatus"></p>
             <div id="profitDisplay" class="profit"></div>
+            <div id="historyDisplay"></div>
         </div>
     </div>
 
@@ -69,10 +72,7 @@
         async function getRecommendation() {
             const fileInput = document.getElementById('zipFile');
             const file = fileInput.files[0];
-            if (!file) {
-                alert("Pilih file ZIP terlebih dahulu.");
-                return;
-            }
+            if (!file) { alert("Pilih file ZIP terlebih dahulu."); return; }
             const formData = new FormData();
             formData.append('zip_file', file);
 
@@ -103,13 +103,11 @@
                 } else {
                     document.getElementById('awayBox').classList.add('green');
                 }
-
                 if (data.ou_choice === 'over') {
                     document.getElementById('overBox').classList.add('green');
                 } else {
                     document.getElementById('underBox').classList.add('green');
                 }
-
                 if (data.btts) document.getElementById('bttsBox').classList.add('green');
                 if (data.over_ht) document.getElementById('overHtBox').classList.add('green');
 
@@ -118,7 +116,10 @@
                     ah_choice: data.ah_choice,
                     ou_choice: data.ou_choice,
                     btts: data.btts,
-                    over_ht: data.over_ht
+                    over_ht: data.over_ht,
+                    home_team: data.home_team,
+                    away_team: data.away_team,
+                    match_date: data.match_date
                 };
                 document.getElementById('status').innerText = "";
                 document.getElementById('profitDisplay').innerHTML = "";
@@ -129,10 +130,7 @@
         }
 
         async function sendFeedback() {
-            if (!lastFeatures || !lastPrediction) {
-                alert("Dapatkan rekomendasi dulu.");
-                return;
-            }
+            if (!lastFeatures || !lastPrediction) { alert("Dapatkan rekomendasi dulu."); return; }
             const formData = new FormData();
             formData.append('ht_home', document.getElementById('htHome').value);
             formData.append('ht_away', document.getElementById('htAway').value);
@@ -144,16 +142,11 @@
                 const resp = await fetch('/feedback', { method: 'POST', body: formData });
                 const data = await resp.json();
 
-                // Tampilkan validasi (✅/❌)
+                // Validasi status
                 const predAH = lastPrediction.ah_choice;
                 const actualAH = data.actual_ah;
                 const ahOk = (predAH === actualAH) && actualAH !== 'push';
                 document.getElementById('ahStatus').innerText = actualAH === 'push' ? '↔️' : (ahOk ? '✅' : '❌');
-                if (actualAH === 'home') {
-                    document.getElementById('homeBox').style.borderColor = ahOk ? 'green' : 'red';
-                } else if (actualAH === 'away') {
-                    document.getElementById('awayBox').style.borderColor = ahOk ? 'green' : 'red';
-                }
 
                 const predOU = lastPrediction.ou_choice;
                 const actualOU = data.actual_ou;
@@ -161,22 +154,27 @@
                 document.getElementById('overStatus').innerText = (predOU === 'over') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
                 document.getElementById('underStatus').innerText = (predOU === 'under') ? (actualOU === 'push' ? '↔️' : (ouOk ? '✅' : '❌')) : '';
 
-                const actualBTTS = data.actual_btts;
-                const bttsOk = lastPrediction.btts === Boolean(actualBTTS);
-                document.getElementById('bttsStatus').innerText = bttsOk ? '✅' : '❌';
+                document.getElementById('bttsStatus').innerText = lastPrediction.btts === Boolean(data.actual_btts) ? '✅' : '❌';
+                document.getElementById('htStatus').innerText = lastPrediction.over_ht === Boolean(data.actual_over_ht) ? '✅' : '❌';
 
-                const actualHT = data.actual_over_ht;
-                const htOk = lastPrediction.over_ht === Boolean(actualHT);
-                document.getElementById('htStatus').innerText = htOk ? '✅' : '❌';
-
-                // Tampilkan profit
                 const profit = data.profit;
                 const totalColor = profit.total >= 0 ? 'positive' : 'negative';
                 document.getElementById('profitDisplay').innerHTML = `
-                    <strong>Profit:</strong><br>
+                    <strong>Profit Pertandingan Ini:</strong><br>
                     AH: ${profit.ah.toFixed(2)} | OU: ${profit.ou.toFixed(2)} | BTTS: ${profit.btts.toFixed(2)} | HT: ${profit.over_ht.toFixed(2)}<br>
-                    <span class="${totalColor}">Total: ${profit.total.toFixed(2)} unit</span>
+                    <span class="${totalColor}">Total: ${profit.total.toFixed(2)} unit</span><br>
+                    <strong>Akumulasi Total: ${data.total_accumulated.toFixed(2)} unit</strong>
                 `;
+
+                // Riwayat
+                if (data.history && data.history.length > 0) {
+                    let html = '<h4>Riwayat Terakhir:</h4><ul class="history-list">';
+                    data.history.forEach(item => {
+                        html += `<li class="history-item">${item.home} ${item.score} ${item.away} : ${item.total_profit.toFixed(2)} unit</li>`;
+                    });
+                    html += '</ul>';
+                    document.getElementById('historyDisplay').innerHTML = html;
+                }
 
                 document.getElementById('feedbackStatus').innerText = data.message;
             } catch (err) {
@@ -185,4 +183,4 @@
         }
     </script>
 </body>
-</html>
+    </html>
