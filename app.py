@@ -82,21 +82,13 @@ def parse_ou_line(ou_str):
 
 
 def parse_handicap_value(handicap_str):
-    """
-    Mengubah string handicap seperti '-0.5', '0/0.5', '0.5/1' menjadi float
-    SESUAI ATURAN:
-    - Jika string diawali '-', Home MENERIMA voor → nilai POSITIF
-    - Jika tidak, Home MEMBERI voor → nilai NEGATIF
-    """
     h = handicap_str.strip()
-    # Hapus tanda minus jika ada, lalu hitung nilai dasar
     clean = h.replace('-', '').replace('+', '')
     if '/' in clean:
         parts = clean.split('/')
         base = (float(parts[0]) + float(parts[1])) / 2
     else:
         base = float(clean)
-
     if h.startswith('-'):
         return base          # Home terima voor → positif
     else:
@@ -128,11 +120,9 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
-    # Simpan display string untuk digunakan saat feedback & tampilan
     features['handicap_display_str'] = live_handicap_text
     features['ou_line_display_str'] = str(live_ou_line)
 
-    # Hitung handicap numerik sesuai aturan baru
     handicap = parse_handicap_value(live_handicap_text)
     features['handicap'] = handicap
 
@@ -228,10 +218,19 @@ def extract_features_from_files(temp_dir):
 def load_or_train_model():
     global model, feature_columns
     if os.path.exists(MODEL_PATH):
-        model = joblib.load(MODEL_PATH)
-        df = pd.read_csv(DATA_PATH)
-        target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
-        feature_columns = [c for c in df.columns if c not in target_columns]
+        try:
+            model = joblib.load(MODEL_PATH)
+            # Periksa apakah model sudah di-fit
+            from sklearn.utils.validation import check_is_fitted
+            check_is_fitted(model)
+            df = pd.read_csv(DATA_PATH)
+            target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
+            feature_columns = [c for c in df.columns if c not in target_columns]
+        except:
+            # Model ada tapi tidak valid, hapus dan buat baru
+            os.remove(MODEL_PATH)
+            model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
+            feature_columns = []
     else:
         model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
         feature_columns = []
@@ -264,15 +263,24 @@ async def predict(zip_file: UploadFile = File(...)):
         features = extract_features_from_files(temp_dir)
 
         global model, feature_columns
-        if model is None or len(feature_columns) == 0:
+
+        # Fallback aman: jika model belum fit, gunakan rule-based
+        use_ml = False
+        if model is not None and len(feature_columns) > 0:
+            try:
+                from sklearn.utils.validation import check_is_fitted
+                check_is_fitted(model)
+                use_ml = True
+            except:
+                use_ml = False
+
+        if not use_ml:
             handicap = features['handicap']
             elo_diff = features['elo_diff']
             if handicap < 0:
-                # Home beri voor (favorit)
-                ah_choice = 'home' if elo_diff > -10 else 'away'
-            elif handicap > 0:
-                # Home terima voor (underdog)
                 ah_choice = 'away' if elo_diff < 0 else 'home'
+            elif handicap > 0:
+                ah_choice = 'home' if elo_diff > -10 else 'away'
             else:
                 ah_choice = 'home' if elo_diff > 0 else 'away'
 
@@ -333,7 +341,6 @@ async def feedback(
         import json
         features = json.loads(features_json)
 
-        # Gunakan handicap dari string display untuk konsistensi
         hdcp_str = features.get('handicap_display_str', '0')
         handicap = parse_handicap_value(hdcp_str)
 
@@ -367,7 +374,6 @@ async def feedback(
         target_ah = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
         target_ou = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
 
-        # Bersihkan fitur
         clean_features = {k: v for k, v in features.items()
                          if not k.startswith('pred_')
                          and k not in ['handicap_display_str', 'ou_line_display_str',
@@ -387,7 +393,6 @@ async def feedback(
         df = pd.concat([df, new_row], ignore_index=True)
         df.to_csv(DATA_PATH, index=False)
 
-        # Profit
         ah_home_odds = float(features.get('ah_home_odds', 1.0))
         ah_away_odds = float(features.get('ah_away_odds', 1.0))
         over_odds = float(features.get('over_odds', 1.0))
