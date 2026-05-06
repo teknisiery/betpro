@@ -220,15 +220,14 @@ def load_or_train_model():
     if os.path.exists(MODEL_PATH):
         try:
             model = joblib.load(MODEL_PATH)
-            # Periksa apakah model sudah di-fit
             from sklearn.utils.validation import check_is_fitted
             check_is_fitted(model)
             df = pd.read_csv(DATA_PATH)
             target_columns = ['ah_winner', 'ou_result', 'btts', 'over_ht']
             feature_columns = [c for c in df.columns if c not in target_columns]
         except:
-            # Model ada tapi tidak valid, hapus dan buat baru
-            os.remove(MODEL_PATH)
+            if os.path.exists(MODEL_PATH):
+                os.remove(MODEL_PATH)
             model = MultiOutputClassifier(RandomForestClassifier(n_estimators=100, random_state=42))
             feature_columns = []
     else:
@@ -264,7 +263,6 @@ async def predict(zip_file: UploadFile = File(...)):
 
         global model, feature_columns
 
-        # Fallback aman: jika model belum fit, gunakan rule-based
         use_ml = False
         if model is not None and len(feature_columns) > 0:
             try:
@@ -374,10 +372,12 @@ async def feedback(
         target_ah = None if actual_ah == 'push' else (1 if actual_ah == 'home' else 0)
         target_ou = None if actual_ou == 'push' else (1 if actual_ou == 'over' else 0)
 
+        # Hapus kolom non‑numerik sebelum menyimpan
+        exclude_keys = ['home_team', 'away_team', 'match_date',
+                        'handicap_display_str', 'ou_line_display_str',
+                        'handicap_display', 'ou_line_display']
         clean_features = {k: v for k, v in features.items()
-                         if not k.startswith('pred_')
-                         and k not in ['handicap_display_str', 'ou_line_display_str',
-                                       'handicap_display', 'ou_line_display']}
+                         if not k.startswith('pred_') and k not in exclude_keys}
         clean_features['handicap'] = handicap
         clean_features['ah_winner'] = target_ah
         clean_features['ou_result'] = target_ou
