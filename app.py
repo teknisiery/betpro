@@ -144,10 +144,8 @@ def compute_ou_actual(ft_home, ft_away, ou_line):
         elif total < lower:
             return 'under', 1.0
         elif total == upper:
-            # total sama dengan garis atas → over win half, under lose half
             return 'over', 0.5
         else:
-            # total sama dengan garis bawah → under win half, over lose half
             return 'under', 0.5
 
 def extract_features_from_files(temp_dir):
