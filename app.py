@@ -324,8 +324,7 @@ async def startup():
 @app.get("/", response_class=HTMLResponse)
 async def home():
     with open("static/index.html", "r") as f:
-        return f.read()
-@app.post("/predict")
+        return f.read()@app.post("/predict")
 async def predict(zip_file: UploadFile = File(...)):
     temp_dir = "temp"
     os.makedirs(temp_dir, exist_ok=True)
