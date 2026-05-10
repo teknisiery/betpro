@@ -325,6 +325,7 @@ async def startup():
 async def home():
     with open("static/index.html", "r") as f:
         return f.read()
+
 @app.post("/predict")
 async def predict(zip_file: UploadFile = File(...)):
     temp_dir = "temp"
@@ -332,7 +333,6 @@ async def predict(zip_file: UploadFile = File(...)):
     zip_path = os.path.join(temp_dir, "uploaded.zip")
     with open(zip_path, "wb") as buffer:
         shutil.copyfileobj(zip_file.file, buffer)
-
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
