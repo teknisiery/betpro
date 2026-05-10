@@ -157,6 +157,7 @@ def extract_features_from_files(temp_dir):
     info = info.map(lambda x: x.strip() if isinstance(x, str) else x)
 
     mask_pre_ah = info[0].str.strip().str.lower() == 'pre-game ah'
+    # ... lanjutkan dengan kode berikutnya yang sudah ada ...
     if not mask_pre_ah.any():
         raise ValueError("Baris 'Pre-game AH' tidak ditemukan di 01_info.csv")
     pre_ah_str = info.loc[mask_pre_ah, 1].values[0]
