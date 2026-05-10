@@ -25,7 +25,6 @@ PROFIT_HISTORY_PATH = "profit_history.csv"
 model = None
 feature_columns = []
 
-# ==================== UTILS ====================
 def convert_numpy(obj):
     if isinstance(obj, dict):
         return {k: convert_numpy(v) for k, v in obj.items()}
@@ -97,9 +96,9 @@ def parse_handicap_value(handicap_str):
     else:
         base = float(clean)
     if h.startswith('-'):
-        return base
+        return base          # Home terima voor → positif
     else:
-        return -base
+        return -base         # Home beri voor → negatif
 
 def compute_ah_actual(ft_home, ft_away, handicap):
     line = -handicap
@@ -326,7 +325,7 @@ async def startup():
 async def home():
     with open("static/index.html", "r") as f:
         return f.read()
-      @app.post("/predict")
+        @app.post("/predict")
 async def predict(zip_file: UploadFile = File(...)):
     temp_dir = "temp"
     os.makedirs(temp_dir, exist_ok=True)
@@ -405,7 +404,6 @@ async def predict(zip_file: UploadFile = File(...)):
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
         return JSONResponse({"error": str(e)}, status_code=400)
-
 
 @app.post("/feedback")
 async def feedback(
@@ -492,7 +490,7 @@ async def feedback(
 
         total_profit = profit_ah + profit_ou + profit_btts + profit_ht
 
-        # Simpan dataset (hapus kolom non-numerik sebelum disimpan)
+        # Simpan dataset (hapus kolom non-numerik)
         clean_features = {}
         non_numeric_keys = ['home_team', 'away_team', 'match_date',
                             'handicap_display_str', 'ou_line_display_str',
@@ -598,7 +596,6 @@ async def feedback(
 
     except Exception as e:
         return JSONResponse({"error": f"Feedback failed: {str(e)}"}, status_code=500)
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
