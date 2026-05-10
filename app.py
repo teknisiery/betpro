@@ -102,10 +102,6 @@ def parse_handicap_value(handicap_str):
         return -base         # Home beri voor → negatif
 
 def compute_ah_actual(ft_home, ft_away, handicap):
-    """
-    Menghitung hasil aktual Asian Handicap.
-    handicap positif = Home MENERIMA voor (underdog).
-    """
     effective = ft_home + handicap
     diff = effective - ft_away
 
@@ -170,7 +166,7 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
-    # BTTS / Over HT odds
+    # BTTS / Over HT odds (default 1.60 / 2.00 jika tidak ada)
     mask_live_btts = info[0].str.strip().str.lower() == 'live btts'
     mask_live_over_ht = info[0].str.strip().str.lower() == 'live over ht'
     if mask_live_btts.any():
