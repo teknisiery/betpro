@@ -136,7 +136,7 @@ def compute_ou_actual(ft_home, ft_away, ou_line):
         else:
             return 'push', 0.0
     else:
-        # Garis pecahan (2.25, 2.75, dst.)
+        # Garis pecahan (2.25, 2.75, 3.75, dst.)
         lower = int(ou_line)
         upper = lower + 0.5
         if total > upper:
@@ -144,11 +144,11 @@ def compute_ou_actual(ft_home, ft_away, ou_line):
         elif total < lower:
             return 'under', 1.0
         elif total == upper:
-            # Sama dengan garis atas (misal 3.0 untuk 2.75)
-            return 'over', 0.5   # Over win half, Under lose half
+            # total sama dengan garis atas → over win half, under lose half
+            return 'over', 0.5
         else:
-            # total == lower
-            return 'under', 0.5  # Under win half, Over lose half
+            # total sama dengan garis bawah → under win half, over lose half
+            return 'under', 0.5
 
 def extract_features_from_files(temp_dir):
     features = {}
