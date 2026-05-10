@@ -120,26 +120,35 @@ def compute_ah_actual(ft_home, ft_away, handicap):
 
 def compute_ou_actual(ft_home, ft_away, ou_line):
     total = ft_home + ft_away
-    if ou_line == int(ou_line):
-        # Garis bulat (2.0, 3.0, dst.)
+    # Garis bulat (2.0, 3.0, dst.)
+    if ou_line % 1 == 0.0:
         if total > ou_line:
             return 'over', 1.0
         elif total < ou_line:
             return 'under', 1.0
         else:
             return 'push', 0.0
+
+    # Garis pecahan (2.25, 2.75, 3.75, dst.)
+    # Tentukan garis bawah dan garis atas
+    if (ou_line - int(ou_line)) == 0.25:
+        lower_line = int(ou_line)
+        upper_line = int(ou_line) + 0.5
+    else:  # 0.75
+        lower_line = int(ou_line) + 0.5
+        upper_line = int(ou_line) + 1.0
+
+    if total > upper_line:
+        return 'over', 1.0
+    elif total < lower_line:
+        return 'under', 1.0
+    elif total == upper_line:
+        return 'over', 0.5   # Over win half, Under lose half
+    elif total == lower_line:
+        return 'under', 0.5  # Under win half, Over lose half
     else:
-        # Garis pecahan (2.25, 2.75, 3.75, dst.)
-        lower = int(ou_line)
-        upper = lower + 0.5
-        if total > upper:
-            return 'over', 1.0
-        elif total < lower:
-            return 'under', 1.0
-        elif total == upper:
-            return 'over', 0.5   # Over win half, Under lose half
-        else:
-            return 'under', 0.5  # Under win half, Over lose half
+        # Seharusnya tidak sampai sini
+        return 'push', 0.0
 
 def extract_features_from_files(temp_dir):
     features = {}
