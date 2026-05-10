@@ -25,6 +25,7 @@ PROFIT_HISTORY_PATH = "profit_history.csv"
 model = None
 feature_columns = []
 
+# ==================== UTILS ====================
 def convert_numpy(obj):
     if isinstance(obj, dict):
         return {k: convert_numpy(v) for k, v in obj.items()}
@@ -103,26 +104,22 @@ def parse_handicap_value(handicap_str):
 def compute_ah_actual(ft_home, ft_away, handicap):
     """
     Menghitung hasil aktual Asian Handicap.
-    handicap  POSITIF  = Home MENERIMA voor (underdog).
-    handicap  NEGATIF  = Home MEMBERI voor (favorit).
+    handicap positif = Home MENERIMA voor (underdog).
     """
     effective = ft_home + handicap
     diff = effective - ft_away
 
     if diff > 0:
-        # Home menang taruhan
         if diff >= 0.5:
-            return 'home', 1.0   # menang penuh
+            return 'home', 1.0
         else:
-            return 'home', 0.5   # menang setengah
+            return 'home', 0.5
     elif diff < 0:
-        # Away menang taruhan
         if diff <= -0.5:
-            return 'away', 1.0   # menang penuh
+            return 'away', 1.0
         else:
-            return 'away', 0.5   # menang setengah
+            return 'away', 0.5
     else:
-        # Push
         return 'push', 0.0
 
 def compute_ou_actual(ft_home, ft_away, ou_line):
@@ -144,9 +141,9 @@ def compute_ou_actual(ft_home, ft_away, ou_line):
         elif total < lower:
             return 'under', 1.0
         elif total == upper:
-            return 'over', 0.5
+            return 'over', 0.5   # Over win half, Under lose half
         else:
-            return 'under', 0.5
+            return 'under', 0.5  # Under win half, Over lose half
 
 def extract_features_from_files(temp_dir):
     features = {}
@@ -155,7 +152,6 @@ def extract_features_from_files(temp_dir):
     info = info.map(lambda x: x.strip() if isinstance(x, str) else x)
 
     mask_pre_ah = info[0].str.strip().str.lower() == 'pre-game ah'
-    # ... lanjutkan dengan kode berikutnya yang sudah ada ...
     if not mask_pre_ah.any():
         raise ValueError("Baris 'Pre-game AH' tidak ditemukan di 01_info.csv")
     pre_ah_str = info.loc[mask_pre_ah, 1].values[0]
@@ -174,6 +170,7 @@ def extract_features_from_files(temp_dir):
     features['over_odds'] = live_over
     features['under_odds'] = live_under
 
+    # BTTS / Over HT odds
     mask_live_btts = info[0].str.strip().str.lower() == 'live btts'
     mask_live_over_ht = info[0].str.strip().str.lower() == 'live over ht'
     if mask_live_btts.any():
@@ -321,6 +318,7 @@ async def predict(zip_file: UploadFile = File(...)):
     zip_path = os.path.join(temp_dir, "uploaded.zip")
     with open(zip_path, "wb") as buffer:
         shutil.copyfileobj(zip_file.file, buffer)
+
     try:
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_dir)
@@ -451,13 +449,13 @@ async def feedback(
                 if actual_ou == 'over':
                     profit_ou = (odds - 1) * 100 * ou_factor
                 else:
-                    profit_ou = -100
+                    profit_ou = -100 * abs(ou_factor) if ou_factor != 0 else -100
             else:
                 odds = under_odds
                 if actual_ou == 'under':
                     profit_ou = (odds - 1) * 100 * ou_factor
                 else:
-                    profit_ou = -100
+                    profit_ou = -100 * abs(ou_factor) if ou_factor != 0 else -100
         else:
             profit_ou = 0.0
 
