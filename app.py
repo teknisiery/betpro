@@ -101,56 +101,29 @@ def parse_handicap_value(handicap_str):
         return -base         # Home beri voor → negatif
 
 def compute_ah_actual(ft_home, ft_away, handicap):
-    line = -handicap
-    whole = int(line)
-    frac = abs(line - whole)
-    goal_diff = ft_home - ft_away
+    """
+    Menghitung hasil aktual Asian Handicap.
+    handicap  POSITIF  = Home MENERIMA voor (underdog).
+    handicap  NEGATIF  = Home MEMBERI voor (favorit).
+    """
+    effective = ft_home + handicap
+    diff = effective - ft_away
 
-    if frac == 0:
-        if goal_diff + line > 0:
-            return 'home', 1.0
-        elif goal_diff + line < 0:
-            return 'away', 1.0
+    if diff > 0:
+        # Home menang taruhan
+        if diff >= 0.5:
+            return 'home', 1.0   # menang penuh
         else:
-            return 'push', 0.0
-    elif abs(frac - 0.25) < 0.001:
-        if line > 0:
-            if goal_diff > 0:
-                return 'home', 1.0
-            elif goal_diff == 0:
-                return 'away', 0.5
-            else:
-                return 'away', 1.0
+            return 'home', 0.5   # menang setengah
+    elif diff < 0:
+        # Away menang taruhan
+        if diff <= -0.5:
+            return 'away', 1.0   # menang penuh
         else:
-            if goal_diff > 0:
-                return 'home', 1.0
-            elif goal_diff == 0:
-                return 'home', 0.5
-            else:
-                return 'away', 1.0
-    elif abs(frac - 0.75) < 0.001:
-        if line > 0:
-            if goal_diff >= 2:
-                return 'home', 1.0
-            elif goal_diff == 1:
-                return 'home', 0.5
-            else:
-                return 'away', 1.0
-        else:
-            if goal_diff >= 0:
-                return 'home', 1.0
-            elif goal_diff == -1:
-                return 'home', 0.5
-            else:
-                return 'away', 1.0
+            return 'away', 0.5   # menang setengah
     else:
-        effective = ft_home + handicap
-        if effective > ft_away:
-            return 'home', 1.0
-        elif effective < ft_away:
-            return 'away', 1.0
-        else:
-            return 'push', 0.0
+        # Push
+        return 'push', 0.0
 
 def compute_ou_actual(ft_home, ft_away, ou_line):
     total = ft_home + ft_away
