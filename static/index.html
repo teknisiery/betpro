@@ -1,1 +1,132 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart Predictor</title>
+    <style>
+        body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; }
+        .card { border: 1px solid #ccc; padding: 16px; margin: 16px 0; border-radius: 8px; }
+        .result span { font-weight: bold; }
+        .profit { margin-top: 10px; }
+        button { padding: 10px 20px; }
+        input[type="number"] { width: 60px; }
+    </style>
+</head>
+<body>
+    <h2>📤 Upload File ZIP</h2>
+    <input type="file" id="zipInput" accept=".zip" />
+    <button onclick="uploadZip()">Dapatkan Rekomendasi</button>
+    <div id="uploadResult"></div>
 
+    <div id="resultCard" class="card" style="display:none">
+        <h3>🏆 Rekomendasi</h3>
+        <div><span>Asian Handicap:</span> <span id="ahDisp"></span> ➔ <strong id="ahChoice"></strong></div>
+        <div><span>Over/Under:</span> <span id="ouDisp"></span> ➔ <strong id="ouChoice"></strong></div>
+        <div><span>BTTS:</span> <strong id="bttsChoice"></strong></div>
+        <div><span>Over HT:</span> <strong id="htChoice"></strong></div>
+        <div id="oddsInfo" style="color:#666; font-size:0.9em; margin-top:8px;"></div>
+    </div>
+
+    <div id="feedbackCard" class="card" style="display:none">
+        <h3>✍️ Masukkan Hasil Aktual (Skor)</h3>
+        <div>
+            <label>HT Home: <input type="number" id="htHome" value="0" /></label>
+            <label>HT Away: <input type="number" id="htAway" value="0" /></label>
+            <label>FT Home: <input type="number" id="ftHome" value="0" /></label>
+            <label>FT Away: <input type="number" id="ftAway" value="0" /></label>
+        </div>
+        <input type="hidden" id="featuresJson" />
+        <button onclick="submitFeedback()">Simpan & Latih Ulang</button>
+        <div id="feedbackMessage"></div>
+        <div id="profitDisplay" class="profit"></div>
+        <div id="historyDisplay"></div>
+    </div>
+
+    <script>
+        let currentFeatures = null;
+
+        async function uploadZip() {
+            const fileInput = document.getElementById('zipInput');
+            const file = fileInput.files[0];
+            if (!file) return alert('Pilih file ZIP dulu');
+            const formData = new FormData();
+            formData.append('zip_file', file);
+
+            const res = await fetch('/predict', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.error) {
+                document.getElementById('uploadResult').innerText = '❌ ' + data.error;
+                return;
+            }
+
+            document.getElementById('ahDisp').innerText = data.ah;
+            document.getElementById('ahChoice').innerText = data.ah_choice.toUpperCase();
+            document.getElementById('ouDisp').innerText = data.ou;
+            document.getElementById('ouChoice').innerText = data.ou_choice.toUpperCase();
+            document.getElementById('bttsChoice').innerText = data.btts ? 'YA' : 'TIDAK';
+            document.getElementById('htChoice').innerText = data.over_ht ? 'YA' : 'TIDAK';
+
+            const odds = [];
+            if (data.features.ah_home_odds) odds.push(`AH Home: ${data.features.ah_home_odds}`);
+            if (data.features.ah_away_odds) odds.push(`AH Away: ${data.features.ah_away_odds}`);
+            if (data.features.over_odds) odds.push(`Over: ${data.features.over_odds}`);
+            if (data.features.under_odds) odds.push(`Under: ${data.features.under_odds}`);
+            document.getElementById('oddsInfo').innerText = odds.join(' | ') || 'Odds tidak tersedia';
+
+            currentFeatures = data.features;
+            document.getElementById('featuresJson').value = JSON.stringify(currentFeatures);
+
+            document.getElementById('resultCard').style.display = 'block';
+            document.getElementById('feedbackCard').style.display = 'block';
+            document.getElementById('feedbackMessage').innerText = '';
+            document.getElementById('profitDisplay').innerHTML = '';
+            document.getElementById('historyDisplay').innerHTML = '';
+        }
+
+        async function submitFeedback() {
+            if (!currentFeatures) {
+                alert('Upload dan dapatkan rekomendasi dulu');
+                return;
+            }
+            const htHome = document.getElementById('htHome').value;
+            const htAway = document.getElementById('htAway').value;
+            const ftHome = document.getElementById('ftHome').value;
+            const ftAway = document.getElementById('ftAway').value;
+
+            const formData = new FormData();
+            formData.append('ht_home', htHome);
+            formData.append('ht_away', htAway);
+            formData.append('ft_home', ftHome);
+            formData.append('ft_away', ftAway);
+            formData.append('features_json', document.getElementById('featuresJson').value);
+
+            const res = await fetch('/feedback', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.error) {
+                document.getElementById('feedbackMessage').innerText = '❌ ' + data.error;
+                return;
+            }
+
+            const p = data.profit;
+            const totalAcc = data.total_accumulated.toFixed(2);
+            document.getElementById('profitDisplay').innerHTML = `
+                <strong>Profit Pertandingan Ini:</strong><br/>
+                AH: ${p.ah.toFixed(2)} | OU: ${p.ou.toFixed(2)} | BTTS: ${p.btts.toFixed(2)} | HT: ${p.over_ht.toFixed(2)}<br/>
+                <strong>Total:</strong> ${p.total.toFixed(2)} unit<br/>
+                <strong>Akumulasi Total:</strong> ${totalAcc} unit
+            `;
+
+            if (data.history.length) {
+                let histHtml = '<strong>Riwayat Terakhir:</strong><br/>';
+                data.history.forEach(h => {
+                    histHtml += `${h.home} ${h.score} ${h.away} : ${h.total_profit.toFixed(2)} unit<br/>`;
+                });
+                document.getElementById('historyDisplay').innerHTML = histHtml;
+            }
+
+            document.getElementById('feedbackMessage').innerText = data.message;
+        }
+    </script>
+</body>
+  </html>
