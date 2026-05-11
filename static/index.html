@@ -5,46 +5,120 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Smart Predictor</title>
     <style>
-        body { font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; }
-        .card { border: 1px solid #ccc; padding: 16px; margin: 16px 0; border-radius: 8px; }
-        .result span { font-weight: bold; }
-        .profit { margin-top: 10px; }
-        button { padding: 10px 20px; }
-        input[type="number"] { width: 60px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background: white; width: 100%; max-width: 500px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); padding: 24px; margin: 20px; }
+        h2 { font-size: 18px; margin-bottom: 12px; }
+        .upload-section { margin-bottom: 20px; }
+        .upload-section input[type="file"] { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 8px; }
+        button { background: #007aff; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; margin-top: 8px; }
+        button:active { opacity: 0.8; }
+
+        .card { background: #fafafa; border-radius: 12px; padding: 16px; margin: 16px 0; border: 1px solid #eee; }
+        .row { display: flex; align-items: center; justify-content: space-between; margin: 8px 0; }
+        .label-group { display: flex; flex-direction: column; }
+        .label-group .title { font-weight: bold; font-size: 16px; }
+        .label-group .subtitle { font-size: 13px; color: #666; margin-top: 2px; }
+        .odds-info { font-size: 11px; color: #999; margin-top: 4px; }
+
+        .option-group { display: flex; gap: 8px; }
+        .option-btn { padding: 8px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; text-align: center; min-width: 60px; background: #e0e0e0; color: #333; border: none; transition: all 0.2s; }
+        .option-btn.active { background: #34c759; color: white; }
+
+        .score-inputs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+        .score-inputs input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; text-align: center; }
+
+        .profit { background: #f0fff0; padding: 12px; border-radius: 8px; border: 1px solid #c8e6c9; margin-top: 12px; }
+        .profit .label { font-weight: bold; margin-bottom: 4px; }
+        .message { margin: 12px 0; padding: 8px; background: #fff3cd; border-radius: 8px; font-size: 14px; }
+        .history { margin-top: 12px; font-size: 13px; }
+        .history ul { list-style: none; padding-left: 0; }
+        .history li { padding: 4px 0; border-bottom: 1px solid #eee; }
     </style>
 </head>
 <body>
-    <h2>📤 Upload File ZIP</h2>
-    <input type="file" id="zipInput" accept=".zip" />
-    <button onclick="uploadZip()">Dapatkan Rekomendasi</button>
-    <div id="uploadResult"></div>
-
-    <div id="resultCard" class="card" style="display:none">
-        <h3>🏆 Rekomendasi</h3>
-        <div><span>Asian Handicap:</span> <span id="ahDisp"></span> ➔ <strong id="ahChoice"></strong></div>
-        <div><span>Over/Under:</span> <span id="ouDisp"></span> ➔ <strong id="ouChoice"></strong></div>
-        <div><span>BTTS:</span> <strong id="bttsChoice"></strong></div>
-        <div><span>Over HT:</span> <strong id="htChoice"></strong></div>
-        <div id="oddsInfo" style="color:#666; font-size:0.9em; margin-top:8px;"></div>
-    </div>
-
-    <div id="feedbackCard" class="card" style="display:none">
-        <h3>✍️ Masukkan Hasil Aktual (Skor)</h3>
-        <div>
-            <label>HT Home: <input type="number" id="htHome" value="0" /></label>
-            <label>HT Away: <input type="number" id="htAway" value="0" /></label>
-            <label>FT Home: <input type="number" id="ftHome" value="0" /></label>
-            <label>FT Away: <input type="number" id="ftAway" value="0" /></label>
+    <div class="container">
+        <h2>📤 Upload File ZIP</h2>
+        <div class="upload-section">
+            <input type="file" id="zipInput" accept=".zip" />
+            <button onclick="uploadZip()">Dapatkan Rekomendasi</button>
+            <div id="uploadError" style="color: red; font-size:14px; margin-top: 8px;"></div>
         </div>
-        <input type="hidden" id="featuresJson" />
-        <button onclick="submitFeedback()">Simpan & Latih Ulang</button>
-        <div id="feedbackMessage"></div>
-        <div id="profitDisplay" class="profit"></div>
-        <div id="historyDisplay"></div>
+
+        <!-- Rekomendasi Card -->
+        <div id="resultCard" class="card" style="display:none;">
+            <h3>🏆 Rekomendasi</h3>
+            <!-- AH Row -->
+            <div class="row">
+                <div class="label-group">
+                    <div class="title">Asian Handicap</div>
+                    <div class="subtitle" id="ahLine"></div>
+                    <div class="odds-info" id="ahOdds"></div>
+                </div>
+                <div class="option-group" id="ahOptions">
+                    <div class="option-btn" id="ahHomeBtn">HOME</div>
+                    <div class="option-btn" id="ahAwayBtn">AWAY</div>
+                </div>
+            </div>
+            <!-- OU Row -->
+            <div class="row">
+                <div class="label-group">
+                    <div class="title">Over/Under</div>
+                    <div class="subtitle" id="ouLine"></div>
+                    <div class="odds-info" id="ouOdds"></div>
+                </div>
+                <div class="option-group" id="ouOptions">
+                    <div class="option-btn" id="ouOverBtn">OVER</div>
+                    <div class="option-btn" id="ouUnderBtn">UNDER</div>
+                </div>
+            </div>
+            <!-- BTTS Row -->
+            <div class="row">
+                <div class="label-group">
+                    <div class="title">BTTS</div>
+                    <div class="odds-info" id="bttsOdds"></div>
+                </div>
+                <div class="option-group" id="bttsOptions">
+                    <div class="option-btn" id="bttsYesBtn">YA</div>
+                    <div class="option-btn" id="bttsNoBtn">TIDAK</div>
+                </div>
+            </div>
+            <!-- Over HT Row -->
+            <div class="row">
+                <div class="label-group">
+                    <div class="title">Over HT</div>
+                    <div class="odds-info" id="htOdds"></div>
+                </div>
+                <div class="option-group" id="htOptions">
+                    <div class="option-btn" id="htYesBtn">YA</div>
+                    <div class="option-btn" id="htNoBtn">TIDAK</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feedback Card -->
+        <div id="feedbackCard" class="card" style="display:none;">
+            <h3>✍️ Masukkan Hasil Aktual (Skor)</h3>
+            <div class="score-inputs">
+                <input type="number" id="htHome" placeholder="HT Home" value="0" />
+                <input type="number" id="htAway" placeholder="HT Away" value="0" />
+                <input type="number" id="ftHome" placeholder="FT Home" value="0" />
+                <input type="number" id="ftAway" placeholder="FT Away" value="0" />
+            </div>
+            <input type="hidden" id="featuresJson" />
+            <button onclick="submitFeedback()">Simpan & Latih Ulang</button>
+            <div class="message" id="feedbackMessage" style="display:none;"></div>
+            <div class="profit" id="profitDisplay" style="display:none;"></div>
+            <div class="history" id="historyDisplay"></div>
+        </div>
     </div>
 
     <script>
         let currentFeatures = null;
+
+        function resetOptionStyles() {
+            document.querySelectorAll('.option-btn').forEach(btn => btn.classList.remove('active'));
+        }
 
         async function uploadZip() {
             const fileInput = document.getElementById('zipInput');
@@ -56,32 +130,56 @@
             const res = await fetch('/predict', { method: 'POST', body: formData });
             const data = await res.json();
             if (data.error) {
-                document.getElementById('uploadResult').innerText = '❌ ' + data.error;
+                document.getElementById('uploadError').innerText = '❌ ' + data.error;
                 return;
             }
+            document.getElementById('uploadError').innerText = '';
 
-            document.getElementById('ahDisp').innerText = data.ah;
-            document.getElementById('ahChoice').innerText = data.ah_choice.toUpperCase();
-            document.getElementById('ouDisp').innerText = data.ou;
-            document.getElementById('ouChoice').innerText = data.ou_choice.toUpperCase();
-            document.getElementById('bttsChoice').innerText = data.btts ? 'YA' : 'TIDAK';
-            document.getElementById('htChoice').innerText = data.over_ht ? 'YA' : 'TIDAK';
+            // Tampilkan handicap line dan odds
+            document.getElementById('ahLine').innerText = 'Handicap ' + data.ah;
+            document.getElementById('ouLine').innerText = 'Line ' + data.ou;
+            document.getElementById('ahOdds').innerText = `Home ${data.features.ah_home_odds || '?'} | Away ${data.features.ah_away_odds || '?'}`;
+            document.getElementById('ouOdds').innerText = `Over ${data.features.over_odds || '?'} | Under ${data.features.under_odds || '?'}`;
+            document.getElementById('bttsOdds').innerText = `Ya ${data.features.btts_yes_odds || '?'} | Tidak ${data.features.btts_no_odds || '?'}`;
+            document.getElementById('htOdds').innerText = `Ya ${data.features.over_ht_yes_odds || '?'} | Tidak ${data.features.over_ht_no_odds || '?'}`;
 
-            const odds = [];
-            if (data.features.ah_home_odds) odds.push(`AH Home: ${data.features.ah_home_odds}`);
-            if (data.features.ah_away_odds) odds.push(`AH Away: ${data.features.ah_away_odds}`);
-            if (data.features.over_odds) odds.push(`Over: ${data.features.over_odds}`);
-            if (data.features.under_odds) odds.push(`Under: ${data.features.under_odds}`);
-            document.getElementById('oddsInfo').innerText = odds.join(' | ') || 'Odds tidak tersedia';
+            // Reset semua tombol
+            resetOptionStyles();
 
+            // AH
+            if (data.ah_choice === 'home') {
+                document.getElementById('ahHomeBtn').classList.add('active');
+            } else {
+                document.getElementById('ahAwayBtn').classList.add('active');
+            }
+            // OU
+            if (data.ou_choice === 'over') {
+                document.getElementById('ouOverBtn').classList.add('active');
+            } else {
+                document.getElementById('ouUnderBtn').classList.add('active');
+            }
+            // BTTS
+            if (data.btts) {
+                document.getElementById('bttsYesBtn').classList.add('active');
+            } else {
+                document.getElementById('bttsNoBtn').classList.add('active');
+            }
+            // Over HT
+            if (data.over_ht) {
+                document.getElementById('htYesBtn').classList.add('active');
+            } else {
+                document.getElementById('htNoBtn').classList.add('active');
+            }
+
+            // Simpan features untuk feedback
             currentFeatures = data.features;
             document.getElementById('featuresJson').value = JSON.stringify(currentFeatures);
 
+            // Tampilkan kartu
             document.getElementById('resultCard').style.display = 'block';
             document.getElementById('feedbackCard').style.display = 'block';
-            document.getElementById('feedbackMessage').innerText = '';
-            document.getElementById('profitDisplay').innerHTML = '';
-            document.getElementById('historyDisplay').innerHTML = '';
+            document.getElementById('feedbackMessage').style.display = 'none';
+            document.getElementById('profitDisplay').style.display = 'none';
         }
 
         async function submitFeedback() {
@@ -105,28 +203,32 @@
             const data = await res.json();
             if (data.error) {
                 document.getElementById('feedbackMessage').innerText = '❌ ' + data.error;
+                document.getElementById('feedbackMessage').style.display = 'block';
                 return;
             }
 
             const p = data.profit;
             const totalAcc = data.total_accumulated.toFixed(2);
             document.getElementById('profitDisplay').innerHTML = `
-                <strong>Profit Pertandingan Ini:</strong><br/>
+                <div class="label">Profit Pertandingan Ini:</div>
                 AH: ${p.ah.toFixed(2)} | OU: ${p.ou.toFixed(2)} | BTTS: ${p.btts.toFixed(2)} | HT: ${p.over_ht.toFixed(2)}<br/>
-                <strong>Total:</strong> ${p.total.toFixed(2)} unit<br/>
-                <strong>Akumulasi Total:</strong> ${totalAcc} unit
+                <strong>Total: ${p.total.toFixed(2)} unit</strong><br/>
+                <strong>Akumulasi Total: ${totalAcc} unit</strong>
             `;
-
-            if (data.history.length) {
-                let histHtml = '<strong>Riwayat Terakhir:</strong><br/>';
-                data.history.forEach(h => {
-                    histHtml += `${h.home} ${h.score} ${h.away} : ${h.total_profit.toFixed(2)} unit<br/>`;
-                });
-                document.getElementById('historyDisplay').innerHTML = histHtml;
-            }
+            document.getElementById('profitDisplay').style.display = 'block';
 
             document.getElementById('feedbackMessage').innerText = data.message;
+            document.getElementById('feedbackMessage').style.display = 'block';
+
+            if (data.history && data.history.length) {
+                let histHtml = '<div class="label">Riwayat Terakhir:</div><ul>';
+                data.history.forEach(h => {
+                    histHtml += `<li>${h.home} ${h.score} ${h.away} : ${h.total_profit.toFixed(2)} unit</li>`;
+                });
+                histHtml += '</ul>';
+                document.getElementById('historyDisplay').innerHTML = histHtml;
+            }
         }
     </script>
 </body>
-  </html>
+</html>
