@@ -445,23 +445,22 @@ async def feedback(
             profit_ah = 0.0
 
         over_odds = float(features.get('over_odds', 1.0))
-        under_odds = float(features.get('under_odds', 1.0))
-        if actual_ou != 'push':
-            if pred_ou == 'over':
-                odds = over_odds
-                if actual_ou == 'over':
-                    profit_ou = (odds - 1) * 100 * ou_factor
-                else:
-                    profit_ou = -100 * abs(ou_factor) if ou_factor != 0 else -100
-            else:
-                odds = under_odds
-                if actual_ou == 'under':
-                    profit_ou = (odds - 1) * 100 * ou_factor
-                else:
-                    profit_ou = -100 * abs(ou_factor) if ou_factor != 0 else -100
+under_odds = float(features.get('under_odds', 1.0))
+if actual_ou != 'push':
+    if pred_ou == 'over':
+        odds = over_odds
+        if actual_ou == 'over':
+            profit_ou = (odds - 1) * 100 * ou_factor
         else:
-            profit_ou = 0.0
-
+            profit_ou = -100 * abs(ou_factor) if ou_factor != 0 else -100
+    else:
+        odds = under_odds
+        if actual_ou == 'under':
+            profit_ou = (odds - 1) * 100 * ou_factor
+        else:
+            profit_ou = -100 * abs(ou_factor) if ou_factor != 0 else -100
+else:
+    profit_ou = 0.0
         btts_yes_odds = float(features.get('btts_yes_odds', 1.60))
         btts_no_odds = float(features.get('btts_no_odds', 2.00))
         ht_yes_odds = float(features.get('over_ht_yes_odds', 1.60))
